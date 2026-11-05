@@ -75,7 +75,8 @@ if __name__=="__main__":
     )
 
     print("Datatrove 파이프라인 실행")
-    executor.run()
+    #executor.run()
+    # 실행했다하면 메모리 부족으로 실패하므로 현재는 실행을 막아놨습니다
     print("샤딩 진짜 끝!!")
 
         
