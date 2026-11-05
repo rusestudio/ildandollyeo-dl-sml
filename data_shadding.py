@@ -16,7 +16,7 @@ class CustomTokenizerStep(PipelineStep):
         os.makedirs(output_dir, exist_ok=True)
 
     def run(self, data, rank: int = 0, word_size: int = 1):
-        #word_size 쟤는 
+        #word_size 쟤는 worker 의 수와 같다보 보면 됨
         tokenizer = Tokenizer.from_file(self.tokenizer_path)
 
         all_tokens = []
