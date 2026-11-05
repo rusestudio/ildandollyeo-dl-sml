@@ -50,7 +50,7 @@ class CustomTokenizerStep(PipelineStep):
             
         print("암튼 샤딩 끝!!")
 #저 if 문 부터 저게 뭐하는 애인지 설명하자면 모든 토큰은 한 청크로 잘라서 각 청크마다 다음과 같은 작업을 함
-#걍 샤딩한 경로를 따라 파일로 저장하는 격임
+#그 후로는 샤딩한 경로를 따라 파일로 저장
 
 if __name__=="__main__":
     reader = HuggingFaceDatasetReader(
