@@ -1,5 +1,7 @@
 from datasets import load_dataset
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 DATASET_NAME = 'HuggingFaceFW/fineweb-edu'
@@ -99,3 +101,49 @@ class MixtureOfExperts(nn.Module):
                 values = expert(flat[token_idx]) * weights[token_idx, slot_idx, None]
                 result.index_add_(0, token_idx, values)
         return result.reshape(shape)
+
+
+#rms
+class RMSNorm(nn.Module):
+    def __init__(self, width, eps=1e-6):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(width))
+        self.eps = eps
+
+    def forward(self, x):
+        return x * torch.rsqrt(x.square().mean(dim=-1, keepdim=True) + self.eps) * self.weight
+
+#dec
+class DecoderBlock(nn.Module):
+    def __init__(self, width, heads, kv_heads, experts, top_k, dropout):
+        super().__init__()
+        self.norm_attn = RMSNorm(width)
+        self.attn = GroupedQueryAttention(width, heads, kv_heads, dropout)
+        self.norm_ff = RMSNorm(width)
+        self.ff = MixtureOfExperts(width, experts, top_k)
+
+    def forward(self, x, rope):
+        x = x + self.attn(self.norm_attn(x), rope)
+        return x + self.ff(self.norm_ff(x))
+
+#transfblock
+class ScratchTransformer(nn.Module):
+    def __init__(self, vocab_size, width=128, layers=2, heads=4, kv_heads=2,
+                 experts=4, top_k=2, context=128, dropout=0.1):
+        super().__init__()
+        self.context = context
+        self.embedding = nn.Embedding(vocab_size, width)
+        self.rope = RotaryEmbedding(width // heads, context)
+        self.blocks = nn.ModuleList([DecoderBlock(width, heads, kv_heads, experts, top_k, dropout)
+                                     for _ in range(layers)])
+        self.norm = RMSNorm(width)
+        self.lm_head = nn.Linear(width, vocab_size, bias=False)
+        self.lm_head.weight = self.embedding.weight
+
+    def forward(self, ids):
+        if ids.size(1) > self.context:
+            raise ValueError('Input exceeds context window')
+        x = self.embedding(ids)
+        for block in self.blocks:
+            x = block(x, self.rope)
+        return self.lm_head(self.norm(x))
