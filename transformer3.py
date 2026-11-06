@@ -64,3 +64,38 @@ class GroupedQueryAttention(nn.Module):
         attended = F.scaled_dot_product_attention(q, k, v, is_causal=True,
                           dropout_p=self.dropout if self.training else 0.0)
         return self.output(attended.transpose(1, 2).contiguous().reshape(batch, seq, width))
+
+
+#glu
+class SwiGLU(nn.Module):
+    def __init__(self, width, inner):
+        super().__init__()
+        self.gate = nn.Linear(width, inner, bias=False)
+        self.up = nn.Linear(width, inner, bias=False)
+        self.down = nn.Linear(inner, width, bias=False)
+
+    def forward(self, x):
+        return self.down(F.silu(self.gate(x)) * self.up(x))
+
+
+#moe
+class MixtureOfExperts(nn.Module):
+    def __init__(self, width, experts, top_k):
+        super().__init__()
+        assert 1 <= top_k <= experts
+        self.router = nn.Linear(width, experts, bias=False)
+        self.experts = nn.ModuleList([SwiGLU(width, 4 * width) for _ in range(experts)])
+        self.top_k = top_k
+
+    def forward(self, x):
+        shape = x.shape
+        flat = x.reshape(-1, shape[-1])
+        scores, indices = self.router(flat).topk(self.top_k, dim=-1)
+        weights = scores.softmax(dim=-1)
+        result = torch.zeros_like(flat)
+        for expert_id, expert in enumerate(self.experts):
+            token_idx, slot_idx = torch.where(indices == expert_id)
+            if token_idx.numel():
+                values = expert(flat[token_idx]) * weights[token_idx, slot_idx, None]
+                result.index_add_(0, token_idx, values)
+        return result.reshape(shape)
