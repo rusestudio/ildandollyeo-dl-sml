@@ -44,3 +44,10 @@ v = v_proj(x).view(batch_size, seq_len, num_kv_heads, head_dim).transpose(1, 2)
 output = F.scaled_dot_product_attention(q, k, v, enable_gqa=True)
 output = output.transpose(1, 2).reshape(batch_size, seq_len, hidden_dim).contiguous()
 output = out_proj(q)
+
+
+#mask???
+mask = torch.triu(torch.full((N,N), float('-inf')), diagonal=1)
+output = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, enable_gqa=True)
+
+#model
