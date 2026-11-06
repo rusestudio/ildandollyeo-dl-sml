@@ -50,4 +50,17 @@ output = out_proj(q)
 mask = torch.triu(torch.full((N,N), float('-inf')), diagonal=1)
 output = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, enable_gqa=True)
 
-#model
+#mlp
+def __init__(self, hidden_dim, intermediate_dim):
+    super().__init__()
+    self.gate = nn.Linear(hidden_dim, intermediate_dim)
+    self.up = nn.Linear(hidden_dim, intermediate_dim)
+    self.down = nn.Linear(intermediate_dim, hidden_dim)
+    self.act = nn.SiLU()
+
+def forward(self, x):
+    x = self.act(self.gate(x)) * self.up(x)
+    x = self.down(x)
+    return x
+
+#+ moelayer - to be try later
