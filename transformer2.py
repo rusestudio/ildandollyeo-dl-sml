@@ -28,3 +28,19 @@ class RotaryPositionalEncoding(nn.Module):
 sequence = torch.randn(1, 10, 4, 128)
 rope = RotaryPositionalEncoding(128)
 new_sequence = rope(sequence)
+
+
+#attention~~
+batch_size, seq_len, hidden_dim = x.shape
+ 
+q_proj = nn.Linear(hidden_dim, num_heads * head_dim)
+k_proj = nn.Linear(hidden_dim, num_kv_heads * head_dim)
+v_proj = nn.Linear(hidden_dim, num_kv_heads * head_dim)
+out_proj = nn.Linear(num_heads * head_dim, hidden_dim)
+ 
+q = q_proj(x).view(batch_size, seq_len, num_heads, head_dim).transpose(1, 2)
+k = k_proj(x).view(batch_size, seq_len, num_kv_heads, head_dim).transpose(1, 2)
+v = v_proj(x).view(batch_size, seq_len, num_kv_heads, head_dim).transpose(1, 2)
+output = F.scaled_dot_product_attention(q, k, v, enable_gqa=True)
+output = output.transpose(1, 2).reshape(batch_size, seq_len, hidden_dim).contiguous()
+output = out_proj(q)
