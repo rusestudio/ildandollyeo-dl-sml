@@ -64,3 +64,5 @@ def forward(self, x):
     return x
 
 #+ moelayer - to be try later
+
+#rms norm , skip connection
