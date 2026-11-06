@@ -1,0 +1,6 @@
+- transformer 구현  11/6  금
+
+
+flow
+-먼저 pretrained tokennizer 사용. 
+-transformer - encoder + decoder- refer basic fig for basic transformer. 
