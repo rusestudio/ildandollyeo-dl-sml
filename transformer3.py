@@ -19,6 +19,7 @@ def document_stream(limit, min_chars=100):
         if limit is not None and count >= limit:
             break
 
+#emdb
 class RotaryEmbedding(nn.Module):
     def __init__(self, head_dim, max_length):
         super().__init__()
@@ -35,3 +36,31 @@ class RotaryEmbedding(nn.Module):
         cos = self.cos[:seq].to(dtype=x.dtype)
         sin = self.sin[:seq].to(dtype=x.dtype)
         return torch.stack((a * cos - b * sin, a * sin + b * cos), dim=-1).flatten(-2)
+
+
+#attentionnnn
+class GroupedQueryAttention(nn.Module):
+    def __init__(self, width, query_heads, kv_heads, dropout):
+        super().__init__()
+        assert width % query_heads == 0 and query_heads % kv_heads == 0
+        self.q_heads, self.kv_heads = query_heads, kv_heads
+        self.head_dim = width // query_heads
+        self.q = nn.Linear(width, width, bias=False)
+        self.k = nn.Linear(width, kv_heads * self.head_dim, bias=False)
+        self.v = nn.Linear(width, kv_heads * self.head_dim, bias=False)
+        self.output = nn.Linear(width, width, bias=False)
+        self.dropout = dropout
+
+    def forward(self, x, rope):
+        batch, seq, width = x.shape
+        q = self.q(x).reshape(batch, seq, self.q_heads, self.head_dim).transpose(1, 2)
+        k = self.k(x).reshape(batch, seq, self.kv_heads, self.head_dim).transpose(1, 2)
+        v = self.v(x).reshape(batch, seq, self.kv_heads, self.head_dim).transpose(1, 2)
+        q, k = rope(q), rope(k)
+        # Repeat KV heads explicitly for compatibility with CPU, CUDA and Apple MPS.
+        repeats = self.q_heads // self.kv_heads
+        k = k.repeat_interleave(repeats, dim=1)
+        v = v.repeat_interleave(repeats, dim=1)
+        attended = F.scaled_dot_product_attention(q, k, v, is_causal=True,
+                          dropout_p=self.dropout if self.training else 0.0)
+        return self.output(attended.transpose(1, 2).contiguous().reshape(batch, seq, width))
