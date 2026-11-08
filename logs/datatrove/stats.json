@@ -1,0 +1,46 @@
+[
+    {
+        "name": "\ud83d\udcd6 - READER: \ud83e\udd17 HuggingFace",
+        "time_stats": {
+            "total": 0.25711110001429915,
+            "n": 10,
+            "mean": 0.025711110001429914,
+            "variance": 8.771267392803603e-05,
+            "std_dev": 0.009365504467354444,
+            "min": 0.02024919999530539,
+            "max": 0.051781399990431964,
+            "unit": "batch",
+            "total_human": "0.26 seconds",
+            "mean_human": "25.71 milliseconds",
+            "std_dev_human": "9.37 milliseconds",
+            "min_human": "20.25 milliseconds",
+            "max_human": "51.78 milliseconds"
+        },
+        "stats": {
+            "doc_len": {
+                "total": 47307528,
+                "n": 10000,
+                "mean": 4730.752799999985,
+                "variance": 78604008.8085729,
+                "std_dev": 8865.89018703553,
+                "min": 255,
+                "max": 485117
+            },
+            "doc_len_tokens": {
+                "total": 10302766,
+                "n": 10000,
+                "mean": 1030.2765999999988,
+                "variance": 3756152.7073631687,
+                "std_dev": 1938.0796442259975,
+                "min": 62,
+                "max": 101566
+            },
+            "documents": 10000
+        }
+    },
+    {
+        "name": "None: None",
+        "time_stats": 0,
+        "stats": {}
+    }
+]

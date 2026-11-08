@@ -1,0 +1,39 @@
+{
+    "pipeline": [
+        {
+            "limit": 10000,
+            "skip": 0,
+            "text_key": "text",
+            "id_key": "id",
+            "adapter": "<bound method BaseReader._default_adapter of \ud83d\udcd6 - READER: \ud83e\udd17 HuggingFace>",
+            "_empty_warning": false,
+            "default_metadata": null,
+            "dataset": "HuggingFaceFW/fineweb-edu",
+            "dataset_options": {
+                "name": "sample-10BT",
+                "split": "train"
+            },
+            "batch_size": 1000,
+            "doc_progress": false,
+            "streaming": true,
+            "shuffle_files": false,
+            "load_from_disk": false
+        },
+        {
+            "tokenizer_path": "models/tokenizer.json",
+            "output_dir": "data/bin_shards",
+            "chunk_size": 50000
+        }
+    ],
+    "logging_dir": "DataFolder(path='C:/deepclass/teamproj/logs/datatrove', fs=<fsspec.implementations.local.LocalFileSystem object at 0x0000026B5139F770>)",
+    "skip_completed": true,
+    "randomize_start_duration": 0,
+    "tasks": 1,
+    "workers": 1,
+    "start_method": "forkserver",
+    "local_tasks": 1,
+    "local_rank_offset": 0,
+    "depends": null,
+    "_launched": true,
+    "world_size": 1
+}

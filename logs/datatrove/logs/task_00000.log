@@ -1,0 +1,2 @@
+2026-11-09 00:23:53.815 | INFO     | datatrove.utils.logging:add_task_logger:76 - Launching pipeline for rank=0
+2026-11-09 00:26:25.497 | SUCCESS  | datatrove.executor.base:_run_for_rank:140 - Processing done for rank=0
