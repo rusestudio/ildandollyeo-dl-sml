@@ -7,37 +7,39 @@ import torch
 import torch.nn.functional as F
 from tokenizers import Tokenizer
 
-from train_config import ModelConfig, PretrainConfig
+from config import DataConfig, TokenizerConfig, ModelConfig, PretrainConfig
 
 # 팀원 코드
 from dataset import build_dataloaders
 from gpt_model import GPTConfig, GPTModel
 
+data_config = DataConfig()
+tokenizer_config = TokenizerConfig()
 model_config = ModelConfig()
 train_config = PretrainConfig()
 
-torch.manual_seed(train_config.seed)
+torch.manual_seed(train_config.random_seed)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 torch.backends.cuda.matmul.allow_tf32 = True
 os.makedirs(train_config.out_dir, exist_ok=True)
 
 # data
 train_loader, val_loader, meta = build_dataloaders(
-    train_config.data_dir,
-    batch_size=train_config.train_batch_size,
+    data_config.processed_dir,
+    batch_size=train_config.batch_size,
     num_workers=train_config.num_workers,
 )
-tokenizer = Tokenizer.from_file(train_config.tokenizer_path)
+tokenizer = Tokenizer.from_file(tokenizer_config.tokenizer_path)
 eos_id = meta["eos_id"]
 
 # model
 gpt_config = GPTConfig(
     vocab_size=meta["vocab_size"],
     seq_len=meta["seq_len"],
-    d_model=model_config.d_model,
-    n_layers=model_config.n_layers,
-    n_heads=model_config.n_heads,
-    d_ff=model_config.d_ff,
+    d_model=model_config.hidden_size,
+    n_layers=model_config.num_layers,
+    n_heads=model_config.num_heads,
+    d_ff=model_config.ffn_hidden_size,
     dropout=model_config.dropout,
     pad_id=meta["pad_id"],
 )
@@ -58,7 +60,7 @@ optimizer = torch.optim.AdamW(
 
 start_step = 0
 best_val_loss = 1e9
-if train_config.resume:
+if train_config.resume_from_checkpoint:
     checkpoint = torch.load(
         os.path.join(train_config.out_dir, "ckpt.pt"), map_location=device
     )
@@ -91,16 +93,19 @@ def estimate_loss():
         x, y = x.to(device), y.to(device)
         with torch.autocast(device_type=device, dtype=torch.bfloat16):
             logits = model(x)
-            loss = F.cross_entropy(
-                logits.reshape(-1, logits.size(-1)), y.reshape(-1)
-            )  #
-            losses.append(loss.item())
+        loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), y.reshape(-1))
+        losses.append(loss.item())
     model.train()
     return sum(losses) / len(losses)
 
 
 @torch.no_grad()
-def generate(prompt, max_new_tokens=100, temperature=0.8, top_k=50):
+def generate(
+    prompt,
+    max_new_tokens=train_config.max_new_tokens,
+    temperature=train_config.temperature,
+    top_k=train_config.top_k,
+):
     model.eval()
     idx = torch.tensor(
         [tokenizer.encode(prompt, add_special_tokens=False).ids], device=device
@@ -133,7 +138,7 @@ for step in range(start_step, train_config.max_steps + 1):
     last_step = step == train_config.max_steps
 
     # evaluate + checkpoint + sample
-    if step % train_config.eval_interval == 0 or last_step:
+    if step % train_config.eval_steps == 0 or last_step:
         val_loss = estimate_loss()
         print(f"step {step}: val loss {val_loss:.4f}, val ppl {math.exp(val_loss):.2f}")
         if step > 0 and val_loss < best_val_loss:
@@ -147,7 +152,7 @@ for step in range(start_step, train_config.max_steps + 1):
             }
             print(f"saving checkpoint to {train_config.out_dir}")
             torch.save(checkpoint, os.path.join(train_config.out_dir, "ckpt.pt"))
-        print(generate("The meaning of education is"))
+        print(generate(train_config.sample_prompt))
 
     if last_step:
         break
@@ -172,7 +177,7 @@ for step in range(start_step, train_config.max_steps + 1):
     optimizer.step()
     optimizer.zero_grad(set_to_none=True)
 
-    if step % train_config.log_interval == 0:
+    if step % train_config.log_steps == 0:
         dt = time.time() - t0
         t0 = time.time()
         print(
