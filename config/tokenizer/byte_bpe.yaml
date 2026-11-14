@@ -1,0 +1,4 @@
+vocab_size: 32768
+min_frequency: 2
+max_token_length: 16
+split_digits: true

@@ -1,0 +1,15 @@
+default:
+  - data: fineweb_edu_10bt
+  - tokenizer: byte_bpe
+  - model: sml_v1
+  - train: pretrain
+  - _self_
+
+# 개발 환경에 따라 수정
+paths:
+  raw: data/raw/sample/10BT
+  tokenizer: data/tokenizer/tokenizer.json
+  processed: data/processed
+  checkpoint: checkpoints
+
+seed: 0

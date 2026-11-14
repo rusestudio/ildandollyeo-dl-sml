@@ -1,35 +1,34 @@
+import sys
+from functools import lru_cache
 from pathlib import Path
 from datasets import load_dataset
+from config.setting import load_config
 
-RAW_DIR = Path("data/raw/sample/10BT")
-VAL_SIZE = 0.0005
-SEED = 42
-NUM_PROC = 8
+def list_files(raw_dir):
+    return sorted(str(path) for path in Path(raw_dir).glob("*.parquet"))
 
-_split = None
+@lru_cache(maxsize=1)
+def load_split(raw_dir, val_size, seed, num_proc):
+    dataset = load_dataset("parquet", data_files=list_files(raw_dir), num_proc=num_proc,)
+    splits = dataset["train"].train_test_split(test_size=val_size, seed=seed, shuffle=True,)
+    splits["val"] = splits.pop("test")
+    return splits
 
-def list_files():
-    return sorted(str(p) for p in RAW_DIR.glob("*.parquet"))
+def iter_texts(cfg, split="train"):
+    splits = load_split(
+        cfg.path.raw, cfg.data.val_size, 
+        cfg.data.split_seed, cfg.data.num_proc,
+        )
+    texts = splits[split].select_columns(["text"])
 
-def load_split():
-    global _split
-    if _split is None:
-        dataset = load_dataset("parquet", data_files=list_files(), num_proc=NUM_PROC)
-        split_dataset = dataset["train"].train_test_split(test_size=VAL_SIZE, seed=SEED, shuffle=True)
-        split_dataset["val"] = split_dataset.pop("test")
-        _split = split_dataset
-    return _split
-
-def iter_texts(split="train", max_docs=None):
-    ds = load_split()[split].select_columns(["text"])
-    if max_docs:
-        ds = ds.select(range(min(max_docs, len(ds))))
-    for batch in ds.iter(batch_size=1000):
-        for text in batch["text"]:
-            yield text
+    for batch in texts.iter(batch_size=cfg.data.read_batch_docs):
+        yield from batch["text"]
 
 if __name__ == "__main__":
-    s = load_split()
-    print(s)
-    print("train:", len(s["train"]), "val:", len(s["val"]))
-    print("HEAD 300:", s["train"][0]["text"][:300])
+    cfg = load_config(sys.argv[1:])
+    splits = load_split(
+        cfg.path.raw, cfg.data.val_size, 
+        cfg.data.split_seed, cfg.data.num_proc,
+        )
+    print("train:", len(splits["train"]))
+    print("val:", len(splits["val"]))
