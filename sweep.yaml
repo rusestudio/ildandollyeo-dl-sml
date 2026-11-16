@@ -1,0 +1,19 @@
+program: train.py
+method: grid
+metric:
+    name: val/loss
+    goal: minimize
+parameters:
+    learning_rate:
+        values: [0.003, 0.004, 0.006, 0.01]
+
+    max_steps:
+        value: 1000
+    warmup_steps:
+        value: 100
+    eval_steps:
+        value: 250
+command:
+    - ${env}
+    - /home/hyeeon02/miniconda3/bin/python
+    - ${program}
