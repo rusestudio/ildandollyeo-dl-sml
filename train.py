@@ -13,61 +13,12 @@ from config import DataConfig, TokenizerConfig, ModelConfig, PretrainConfig
 from dataset import build_dataloaders
 from gpt_model import GPTConfig, GPTModel
 
+import wandb
+
 data_config = DataConfig()
 tokenizer_config = TokenizerConfig()
 model_config = ModelConfig()
 train_config = PretrainConfig()
-
-torch.manual_seed(train_config.random_seed)
-device = "cuda" if torch.cuda.is_available() else "cpu"
-torch.backends.cuda.matmul.allow_tf32 = True
-os.makedirs(train_config.out_dir, exist_ok=True)
-
-# data
-train_loader, val_loader, meta = build_dataloaders(
-    data_config.processed_dir,
-    batch_size=train_config.batch_size,
-    num_workers=train_config.num_workers,
-)
-tokenizer = Tokenizer.from_file(tokenizer_config.tokenizer_path)
-eos_id = meta["eos_id"]
-
-# model
-gpt_config = GPTConfig(
-    vocab_size=meta["vocab_size"],
-    seq_len=meta["seq_len"],
-    d_model=model_config.hidden_size,
-    n_layers=model_config.num_layers,
-    n_heads=model_config.num_heads,
-    d_ff=model_config.ffn_hidden_size,
-    dropout=model_config.dropout,
-    pad_id=meta["pad_id"],
-)
-model = GPTModel(gpt_config).to(device)
-print(f"number of parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
-
-# optimizer (2D 이상 파라미터만 weight decay)
-decay_params = [p for p in model.parameters() if p.dim() >= 2]
-nodecay_params = [p for p in model.parameters() if p.dim() < 2]
-optimizer = torch.optim.AdamW(
-    [
-        {"params": decay_params, "weight_decay": train_config.weight_decay},
-        {"params": nodecay_params, "weight_decay": 0.0},
-    ],
-    lr=train_config.learning_rate,
-    betas=train_config.adam_betas,
-)
-
-start_step = 0
-best_val_loss = 1e9
-if train_config.resume_from_checkpoint:
-    checkpoint = torch.load(
-        os.path.join(train_config.out_dir, "ckpt.pt"), map_location=device
-    )
-    model.load_state_dict(checkpoint["model"])
-    optimizer.load_state_dict(checkpoint["optimizer"])
-    start_step = checkpoint["step"]
-    best_val_loss = checkpoint["best_val_loss"]
 
 
 # warmup -> cosine decay
@@ -130,56 +81,143 @@ def infinite_batches():
             yield x.to(device), y.to(device)
 
 
-# training loop
-batches = infinite_batches()
-model.train()
-t0 = time.time()
-for step in range(start_step, train_config.max_steps + 1):
-    last_step = step == train_config.max_steps
-
-    # evaluate + checkpoint + sample
-    if step % train_config.eval_steps == 0 or last_step:
-        val_loss = estimate_loss()
-        print(f"step {step}: val loss {val_loss:.4f}, val ppl {math.exp(val_loss):.2f}")
-        if step > 0 and val_loss < best_val_loss:
-            best_val_loss = val_loss
-            checkpoint = {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "gpt_config": asdict(gpt_config),
-                "step": step,
-                "best_val_loss": best_val_loss,
-            }
-            print(f"saving checkpoint to {train_config.out_dir}")
-            torch.save(checkpoint, os.path.join(train_config.out_dir, "ckpt.pt"))
-        print(generate(train_config.sample_prompt))
-
-    if last_step:
-        break
-
-    lr = get_lr(step)
-    for param_group in optimizer.param_groups:
-        param_group["lr"] = lr
-
-    loss_accum = 0.0
-    for micro_step in range(train_config.gradient_accumulation_steps):
-        x, y = next(batches)
-        with torch.autocast(device_type=device, dtype=torch.bfloat16):
-            logits = model(x)
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
-        loss = loss / train_config.gradient_accumulation_steps
-        loss_accum += loss.item()
-        loss.backward()
-
-    norm = torch.nn.utils.clip_grad_norm_(
-        model.parameters(), train_config.max_grad_norm
-    )
-    optimizer.step()
-    optimizer.zero_grad(set_to_none=True)
-
-    if step % train_config.log_steps == 0:
-        dt = time.time() - t0
-        t0 = time.time()
-        print(
-            f"step {step}: loss {loss_accum:.4f}, lr {lr:.2e}, norm {norm:.2f}, time {dt * 1000:.0f}ms"
+if __name__ == "__main__":
+    if train_config.wandb_log:
+        wandb.init(
+            project=train_config.wandb_project,
+            name=train_config.wandb_run_name or None,
+            config={**asdict(model_config), **asdict(train_config)},
         )
+        # sweep 값으로 덮어쓰기
+        for k, v in wandb.config.items():
+            if hasattr(model_config, k):
+                setattr(model_config, k, v)
+            if hasattr(train_config, k):
+                setattr(train_config, k, v)
+        wandb.run.name = (
+            f"lr{train_config.learning_rate}_do{model_config.dropout}"
+            f"_wd{train_config.weight_decay}_{train_config.max_steps}st"
+        )
+        train_config.out_dir = os.path.join(train_config.out_dir, wandb.run.name)
+
+    torch.manual_seed(train_config.random_seed)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    torch.backends.cuda.matmul.allow_tf32 = True
+    os.makedirs(train_config.out_dir, exist_ok=True)
+
+    # data
+    train_loader, val_loader, meta = build_dataloaders(
+        data_config.processed_dir,
+        batch_size=train_config.batch_size,
+        num_workers=train_config.num_workers,
+    )
+    tokenizer = Tokenizer.from_file(tokenizer_config.tokenizer_path)
+    eos_id = meta["eos_id"]
+
+    # model
+    gpt_config = GPTConfig(
+        vocab_size=meta["vocab_size"],
+        seq_len=meta["seq_len"],
+        d_model=model_config.hidden_size,
+        n_layers=model_config.num_layers,
+        n_heads=model_config.num_heads,
+        d_ff=model_config.ffn_hidden_size,
+        dropout=model_config.dropout,
+        pad_id=meta["pad_id"],
+    )
+    model = GPTModel(gpt_config).to(device)
+    print(
+        f"number of parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M"
+    )
+
+    print(
+        f"number of parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M"
+    )
+
+    # optimizer
+    decay_params = [p for p in model.parameters() if p.dim() >= 2]
+    nodecay_params = [p for p in model.parameters() if p.dim() < 2]
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": decay_params, "weight_decay": train_config.weight_decay},
+            {"params": nodecay_params, "weight_decay": 0.0},
+        ],
+        lr=train_config.learning_rate,
+        betas=train_config.adam_betas,
+    )
+
+    start_step = 0
+    best_val_loss = 1e9
+    if train_config.resume_from_checkpoint:
+        checkpoint = torch.load(
+            os.path.join(train_config.out_dir, "ckpt.pt"), map_location=device
+        )
+        model.load_state_dict(checkpoint["model"])
+        optimizer.load_state_dict(checkpoint["optimizer"])
+        start_step = checkpoint["step"]
+        best_val_loss = checkpoint["best_val_loss"]
+
+    # training loop
+    batches = infinite_batches()
+    model.train()
+    t0 = time.time()
+    for step in range(start_step, train_config.max_steps + 1):
+        last_step = step == train_config.max_steps
+
+        # evaluate + checkpoint + sample
+        if step % train_config.eval_steps == 0 or last_step:
+            val_loss = estimate_loss()
+            print(
+                f"step {step}: val loss {val_loss:.4f}, val ppl {math.exp(val_loss):.2f}"
+            )
+            if train_config.wandb_log:
+                wandb.log(
+                    {"val/loss": val_loss, "val/ppl": math.exp(val_loss)}, step=step
+                )
+            if step > 0 and val_loss < best_val_loss:
+                best_val_loss = val_loss
+                checkpoint = {
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "gpt_config": asdict(gpt_config),
+                    "step": step,
+                    "best_val_loss": best_val_loss,
+                }
+                print(f"saving checkpoint to {train_config.out_dir}")
+                torch.save(checkpoint, os.path.join(train_config.out_dir, "ckpt.pt"))
+            print(generate(train_config.sample_prompt))
+
+        if last_step:
+            break
+
+        lr = get_lr(step)
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = lr
+
+        loss_accum = 0.0
+        for micro_step in range(train_config.gradient_accumulation_steps):
+            x, y = next(batches)
+            with torch.autocast(device_type=device, dtype=torch.bfloat16):
+                logits = model(x)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+            loss = loss / train_config.gradient_accumulation_steps
+            loss_accum += loss.item()
+            loss.backward()
+
+        norm = torch.nn.utils.clip_grad_norm_(
+            model.parameters(), train_config.max_grad_norm
+        )
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+
+        if step % train_config.log_steps == 0:
+            dt = time.time() - t0
+            t0 = time.time()
+            print(
+                f"step {step}: loss {loss_accum:.4f}, lr {lr:.2e}, norm {norm:.2f}, time {dt * 1000:.0f}ms"
+            )
+            if train_config.wandb_log:
+                wandb.log(
+                    {"train/loss": loss_accum, "lr": lr, "grad_norm": norm.item()},
+                    step=step,
+                )
