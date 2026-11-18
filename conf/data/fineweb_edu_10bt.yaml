@@ -1,0 +1,14 @@
+# download.py
+download_pattern: sample/10BT/013_00000.parquet  # sample
+
+# split_dataset.py
+val_size: 0.0005
+split_seed: ${seed}
+num_proc: 8
+
+# preparetoken.py
+max_train_docs: 20000  # 0 = 전체
+max_val_docs: 0  # 0 = 전체
+seq_len: 256  # 모델 context 길이
+encode_batch_docs: 128  # 토큰화할 때 batch 문서 수
+verify_batch_size: 4  
