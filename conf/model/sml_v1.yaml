@@ -1,0 +1,5 @@
+d_model: 256
+n_layers: 6
+n_heads: 8
+d_ff: 1024
+dropout: 0.1
