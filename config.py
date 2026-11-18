@@ -36,8 +36,9 @@ class ModelConfig:
     hidden_size: int = 256
     num_layers: int = 6
     num_heads: int = 8
-    ffn_hidden_size: int = 1024
+    ffn_hidden_size: int = 1024 
     dropout: float = 0.1
+    ffn_type: str = "swiglu"
 
 
 @dataclass
@@ -53,6 +54,7 @@ class PretrainConfig:
     adam_betas: tuple[float, float] = (0.9, 0.95)
     weight_decay: float = 0.1
     max_grad_norm: float = 1.0  # gradient clipping
+    compile: bool = True
 
     eval_steps: int = 250
     eval_iters: int = 50
