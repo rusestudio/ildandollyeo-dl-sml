@@ -40,6 +40,7 @@ gpt_config = GPTConfig(
     n_layers=model_config.num_layers,
     n_heads=model_config.num_heads,
     d_ff=model_config.ffn_hidden_size,
+    ffn_type=model_config.ffn_type,
     dropout=model_config.dropout,
     pad_id=meta["pad_id"],
 )
@@ -56,6 +57,7 @@ optimizer = torch.optim.AdamW(
     ],
     lr=train_config.learning_rate,
     betas=train_config.adam_betas,
+    fused=(device == "cuda"),
 )
 
 start_step = 0
@@ -69,6 +71,9 @@ if train_config.resume_from_checkpoint:
     start_step = checkpoint["step"]
     best_val_loss = checkpoint["best_val_loss"]
 
+raw_model = model
+if train_config.compile and device == "cuda":
+    model = torch.compile(model)
 
 # warmup -> cosine decay
 def get_lr(it):
@@ -112,7 +117,7 @@ def generate(
     )
     for _ in range(max_new_tokens):
         idx_cond = idx[:, -gpt_config.seq_len :]
-        logits = model(idx_cond)[:, -1, :] / temperature
+        logits = raw_model(idx_cond)[:, -1, :] / temperature
         v, _ = torch.topk(logits, top_k)
         logits[logits < v[:, [-1]]] = -float("inf")
         probs = F.softmax(logits, dim=-1)
@@ -144,7 +149,7 @@ for step in range(start_step, train_config.max_steps + 1):
         if step > 0 and val_loss < best_val_loss:
             best_val_loss = val_loss
             checkpoint = {
-                "model": model.state_dict(),
+                "model": raw_model.state_dict(),
                 "optimizer": optimizer.state_dict(),
                 "gpt_config": asdict(gpt_config),
                 "step": step,
