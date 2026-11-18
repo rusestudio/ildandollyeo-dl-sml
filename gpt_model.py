@@ -3,7 +3,7 @@ import math
 
 import torch
 from torch import nn
-
+import torch.nn.functional as F
 from embedding import EmbeddingLayer, apply_rope
 
 
@@ -17,6 +17,7 @@ class GPTConfig:
     d_ff: int = 1024
     dropout: float = 0.1
     pad_id: int | None = 0
+    ffn_type: str = "relu"  # relu, swiglu 테스트 옵션
 
 class FeedFowordBlock(nn.Module):
     def __init__(self, d_model: int, d_ff: int, dropout: float):
@@ -28,6 +29,15 @@ class FeedFowordBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear_2(self.dropout(torch.relu(self.linear_1(x))))
 
+class SwiGLUBlock(nn.Module):
+    def __init__(self, d_model: int, d_ff: int, dropout: float):
+        super().__init__()
+        self.w_gate = nn.Linear(d_model, d_ff, bias=False)
+        self.w_up = nn.Linear(d_model, d_ff, bias=False)
+        self.w_down = nn.Linear(d_ff, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.w_down(self.dropout(F.silu(self.w_gate(x)) * self.w_up(x)))
 
 class ResConnection(nn.Module):
     def __init__(self, features: int, dropout: float):
@@ -74,12 +84,9 @@ class MultiHeadAttention(nn.Module):
         q = apply_rope(q, cos, sin)
         k = apply_rope(k, cos, sin)
 
-        scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.d_k)
-        # True = permitted attention. No token may attend to future positions.
-        scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
-        attention = torch.softmax(scores, dim=-1)
-        attention = self.dropout(attention)
-        out = attention @ v
+        out = F.scaled_dot_product_attention(
+            q, k, v, dropout_p=self.dropout.p if self.training else 0.0,
+            is_causal=True)
         out = out.transpose(1, 2).contiguous().reshape(B, T, C)
         return self.w_o(out)
 
@@ -131,7 +138,8 @@ class GPTModel(nn.Module):
             DecoderBlock(
                 config.d_model,
                 MultiHeadAttention(config.d_model, config.n_heads, config.dropout),
-                FeedFowordBlock(config.d_model, config.d_ff, config.dropout),
+                (SwiGLUBlock if config.ffn_type == "swiglu" else FeedFowordBlock)
+                (config.d_model, config.d_ff, config.dropout),
                 config.dropout,
             )
             for _ in range(config.n_layers)
