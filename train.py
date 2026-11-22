@@ -95,7 +95,8 @@ if __name__ == "__main__":
             if hasattr(train_config, k):
                 setattr(train_config, k, v)
         wandb.run.name = (
-            f"lr{train_config.learning_rate}_do{model_config.dropout}"
+            f"d{model_config.hidden_size}L{model_config.num_layers}"
+            f"_lr{train_config.learning_rate}_do{model_config.dropout}"
             f"_wd{train_config.weight_decay}_{train_config.max_steps}st"
         )
         train_config.out_dir = os.path.join(train_config.out_dir, wandb.run.name)
@@ -126,10 +127,6 @@ if __name__ == "__main__":
         pad_id=meta["pad_id"],
     )
     model = GPTModel(gpt_config).to(device)
-    print(
-        f"number of parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M"
-    )
-
     print(
         f"number of parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M"
     )
