@@ -16,7 +16,6 @@ class GPTConfig:
     n_heads: int = 8
     d_ff: int = 1024
     dropout: float = 0.1
-    pad_id: int | None = 0
     ffn_type: str = "relu"  # relu, swiglu 테스트 옵션
 
 class FeedFowordBlock(nn.Module):
@@ -43,7 +42,7 @@ class ResConnection(nn.Module):
     def __init__(self, features: int, dropout: float):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
-        self.norm = nn.LayerNorm(features)
+        self.norm = nn.RMSNorm(features)  # LayerNorm보다 가볍고 RoPE/SwiGLU 계열과 맞춤임.
 
     def forward(self, x: torch.Tensor, sublayer):
         return x + self.dropout(sublayer(self.norm(x)))
@@ -59,28 +58,20 @@ class MultiHeadAttention(nn.Module):
         self.d_k = d_model // h
         if self.d_k % 2:
             raise ValueError("RoPE requires even-sized attention heads")
-        # Keep the original separate, bias-free Q/K/V/output projections.
-        self.w_q = nn.Linear(d_model, d_model, bias=False)
-        self.w_k = nn.Linear(d_model, d_model, bias=False)
-        self.w_v = nn.Linear(d_model, d_model, bias=False)
+        self.w_qkv = nn.Linear(d_model, 3 * d_model, bias=False)  # Q/K/V를 행렬곱 한 번으로 계산함.
         self.w_o = nn.Linear(d_model, d_model, bias=False)
+        # head별 QK-norm으로 attention logit이 커지는 것을 막는 것을 의도임.
+        self.q_norm = nn.RMSNorm(self.d_k)
+        self.k_norm = nn.RMSNorm(self.d_k)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor, cos: torch.Tensor,
-                sin: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+                sin: torch.Tensor) -> torch.Tensor:
         B, T, C = x.shape
-        if C != self.d_model:
-            raise ValueError(f"Expected d_model={self.d_model}; received {C}")
-        if cos.shape != (T, self.d_k) or sin.shape != (T, self.d_k):
-            raise ValueError("Invalid RoPE tables: expected (seq_len, head_dim)")
-        q = self.w_q(x).reshape(B, T, self.h, self.d_k).transpose(1, 2)
-        k = self.w_k(x).reshape(B, T, self.h, self.d_k).transpose(1, 2)
-        v = self.w_v(x).reshape(B, T, self.h, self.d_k).transpose(1, 2)
+        q, k, v = self.w_qkv(x).reshape(B, T, 3, self.h, self.d_k).permute(2, 0, 3, 1, 4)
+        q, k = self.q_norm(q), self.k_norm(k)
 
-        # embedding.py supplies real RoPE functions. Q/K must be rotated
-        # AFTER reshaping into heads but BEFORE the scaled-dot-product.
-        cos = cos[None, None, :, :].to(dtype=q.dtype)
-        sin = sin[None, None, :, :].to(dtype=q.dtype)
+        # cos/sin은 fp32 그대로 써서 회전 계산을 fp32로 함.
         q = apply_rope(q, cos, sin)
         k = apply_rope(k, cos, sin)
 
@@ -101,10 +92,9 @@ class DecoderBlock(nn.Module):
             [ResConnection(features, dropout) for _ in range(2)]
         )
 
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
-                mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
         x = self.residual_connections[0](
-            x, lambda normalized: self.self_attention_block(normalized, cos, sin, mask)
+            x, lambda normalized: self.self_attention_block(normalized, cos, sin)
         )
         x = self.residual_connections[1](x, self.feed_forward_block)
         return x
@@ -114,12 +104,11 @@ class Decoder(nn.Module):
     def __init__(self, features: int, layers: nn.ModuleList):
         super().__init__()
         self.layers = layers
-        self.norm = nn.LayerNorm(features)
+        self.norm = nn.RMSNorm(features)
 
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
-                mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
         for layer in self.layers:
-            x = layer(x, cos, sin, mask)
+            x = layer(x, cos, sin)
         return self.norm(x)
 
 
@@ -132,7 +121,7 @@ class GPTModel(nn.Module):
             d_model=config.d_model,
             n_head=config.n_heads,
             max_len=config.seq_len,
-            pad_id=config.pad_id,
+            pad_id=None,  # packed 데이터라 PAD 안 씀. lm_head와 공유하므로 padding_idx 뺌.
         )
         blocks = nn.ModuleList([
             DecoderBlock(
@@ -146,13 +135,16 @@ class GPTModel(nn.Module):
         ])
         self.decoder = Decoder(config.d_model, blocks)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
-        # Scratch-only initialization for this model's new Linear weights;
-        # existing EmbeddingLayer initializes its own token weights with std=.02.
+        self.lm_head.weight = self.embed.tok.weight  # 입력 임베딩과 가중치 공유(weight tying)임.
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 nn.init.normal_(module.weight, mean=0.0, std=0.02)
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
+        # 잔차로 더해지는 출력층은 std를 1/sqrt(2*n_layers)만큼 줄임 (GPT-2 방식)임.
+        for name, p in self.named_parameters():
+            if name.endswith(("w_o.weight", "w_down.weight", "linear_2.weight")):
+                nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * config.n_layers))
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         if input_ids.ndim != 2:
@@ -163,13 +155,12 @@ class GPTModel(nn.Module):
         if B == 0 or T == 0 or T > self.config.seq_len:
             raise ValueError(f"Input shape incompatible with context length {self.config.seq_len}")
         x, (cos, sin) = self.embed(input_ids)  # teammate's embedding.py
-        mask = torch.ones((T, T), device=input_ids.device, dtype=torch.bool).tril()
-        mask = mask[None, None, :, :]  # [1,1,T,T] broadcasts over B and heads
-        x = self.decoder(x, cos, sin, mask)
+        # causal은 SDPA is_causal로 처리해서 mask 안 만듦. cos/sin은 여기서 한 번만 [1,1,T,d]로 맞춤임.
+        x = self.decoder(x, cos[None, None], sin[None, None])
         return self.lm_head(x)  # [B,T,V] raw logits, no softmax
 
 
 def build_language_model(vocab_size: int, seq_len: int, d_model: int = 256,
                          N: int = 6, h: int = 8, dropout: float = 0.1,
-                         d_ff: int = 1024, pad_id: int | None = 0) -> GPTModel:
-    return GPTModel(GPTConfig(vocab_size, seq_len, d_model, N, h, d_ff, dropout, pad_id))
+                         d_ff: int = 1024, ffn_type: str = "relu") -> GPTModel:
+    return GPTModel(GPTConfig(vocab_size, seq_len, d_model, N, h, d_ff, dropout, ffn_type))

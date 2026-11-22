@@ -1,4 +1,4 @@
 vocab_size: 16000
-max_docs: 20000  # 토크나이저 학습에 쓸 문서 수
+max_docs: 100000  # 토크나이저 학습에 쓸 문서 수
 max_token_length: 16
 num_val_docs: 4  # 토크나이저 검증용 문서 수
