@@ -9,7 +9,7 @@ from embedding import EmbeddingLayer, apply_rope
 
 @dataclass(frozen=True)
 class GPTConfig:
-    vocab_size: int = 16_000 # 정현님 please remove n combine in full config 
+    vocab_size: int = 16000  # 정현님 please remove n combine in full config
     seq_len: int = 256
     d_model: int = 256
     n_layers: int = 6
@@ -17,7 +17,27 @@ class GPTConfig:
     d_ff: int = 1024
     dropout: float = 0.1
     pad_id: int | None = 0
-    ffn_type: str = "relu"  # relu, swiglu 테스트 옵션
+    ffn_type: str = "relu"  # relu, swiglu 테스트 옵션'
+    norm_type: str = "layernorm"  # layernorm, rmsnorm
+    qk_norm: bool = False  # attention q, k 정규화
+
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(dim))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        dtype = x.dtype
+        x = x.float()  # 학습은 bf16인데, norm 은 fp32로 계산
+        x = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        return self.weight * x.to(dtype)
+
+
+def make_norm(norm_type: str, dim: int) -> nn.Module:
+    return RMSNorm(dim) if norm_type == "rmsnorm" else nn.LayerNorm(dim)
+
 
 class FeedFowordBlock(nn.Module):
     def __init__(self, d_model: int, d_ff: int, dropout: float):
@@ -29,6 +49,7 @@ class FeedFowordBlock(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.linear_2(self.dropout(torch.relu(self.linear_1(x))))
 
+
 class SwiGLUBlock(nn.Module):
     def __init__(self, d_model: int, d_ff: int, dropout: float):
         super().__init__()
@@ -36,21 +57,23 @@ class SwiGLUBlock(nn.Module):
         self.w_up = nn.Linear(d_model, d_ff, bias=False)
         self.w_down = nn.Linear(d_ff, d_model, bias=False)
         self.dropout = nn.Dropout(dropout)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.w_down(self.dropout(F.silu(self.w_gate(x)) * self.w_up(x)))
 
+
 class ResConnection(nn.Module):
-    def __init__(self, features: int, dropout: float):
+    def __init__(self, features: int, dropout: float, norm_type: str = "layernorm"):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
-        self.norm = nn.LayerNorm(features)
+        self.norm = make_norm(norm_type, features)
 
     def forward(self, x: torch.Tensor, sublayer):
         return x + self.dropout(sublayer(self.norm(x)))
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model: int, h: int, dropout: float):
+    def __init__(self, d_model: int, h: int, dropout: float, qk_norm: bool = False):
         super().__init__()
         if d_model % h:
             raise ValueError("d_model must be divisible by h")
@@ -65,9 +88,14 @@ class MultiHeadAttention(nn.Module):
         self.w_v = nn.Linear(d_model, d_model, bias=False)
         self.w_o = nn.Linear(d_model, d_model, bias=False)
         self.dropout = nn.Dropout(dropout)
+        self.qk_norm = qk_norm
+        if qk_norm:
+            self.q_norm = RMSNorm(self.d_k)
+            self.k_norm = RMSNorm(self.d_k)
 
-    def forward(self, x: torch.Tensor, cos: torch.Tensor,
-                sin: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, mask: torch.Tensor
+    ) -> torch.Tensor:
         B, T, C = x.shape
         if C != self.d_model:
             raise ValueError(f"Expected d_model={self.d_model}; received {C}")
@@ -77,6 +105,10 @@ class MultiHeadAttention(nn.Module):
         k = self.w_k(x).reshape(B, T, self.h, self.d_k).transpose(1, 2)
         v = self.w_v(x).reshape(B, T, self.h, self.d_k).transpose(1, 2)
 
+        if self.qk_norm:
+            q = self.q_norm(q)  # ehad 차원(d_k) 기준 정규화, rope 전에
+            k = self.k_norm(k)
+
         # embedding.py supplies real RoPE functions. Q/K must be rotated
         # AFTER reshaping into heads but BEFORE the scaled-dot-product.
         cos = cos[None, None, :, :].to(dtype=q.dtype)
@@ -85,24 +117,31 @@ class MultiHeadAttention(nn.Module):
         k = apply_rope(k, cos, sin)
 
         out = F.scaled_dot_product_attention(
-            q, k, v, dropout_p=self.dropout.p if self.training else 0.0,
-            is_causal=True)
+            q, k, v, dropout_p=self.dropout.p if self.training else 0.0, is_causal=True
+        )
         out = out.transpose(1, 2).contiguous().reshape(B, T, C)
         return self.w_o(out)
 
 
 class DecoderBlock(nn.Module):
-    def __init__(self, features: int, self_attention_block: MultiHeadAttention,
-                 feed_forward_block: FeedFowordBlock, dropout: float):
+    def __init__(
+        self,
+        features: int,
+        self_attention_block: MultiHeadAttention,
+        feed_forward_block: FeedFowordBlock,
+        dropout: float,
+        norm_type: str = "layernorm",
+    ):
         super().__init__()
         self.self_attention_block = self_attention_block
         self.feed_forward_block = feed_forward_block
         self.residual_connections = nn.ModuleList(
-            [ResConnection(features, dropout) for _ in range(2)]
+            [ResConnection(features, dropout, norm_type) for _ in range(2)]
         )
 
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
-                mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, mask: torch.Tensor
+    ) -> torch.Tensor:
         x = self.residual_connections[0](
             x, lambda normalized: self.self_attention_block(normalized, cos, sin, mask)
         )
@@ -111,13 +150,16 @@ class DecoderBlock(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, features: int, layers: nn.ModuleList):
+    def __init__(
+        self, features: int, layers: nn.ModuleList, norm_type: str = "layernorm"
+    ):
         super().__init__()
         self.layers = layers
-        self.norm = nn.LayerNorm(features)
+        self.norm = make_norm(norm_type, features)
 
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
-                mask: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, mask: torch.Tensor
+    ) -> torch.Tensor:
         for layer in self.layers:
             x = layer(x, cos, sin, mask)
         return self.norm(x)
@@ -134,17 +176,23 @@ class GPTModel(nn.Module):
             max_len=config.seq_len,
             pad_id=config.pad_id,
         )
-        blocks = nn.ModuleList([
-            DecoderBlock(
-                config.d_model,
-                MultiHeadAttention(config.d_model, config.n_heads, config.dropout),
-                (SwiGLUBlock if config.ffn_type == "swiglu" else FeedFowordBlock)
-                (config.d_model, config.d_ff, config.dropout),
-                config.dropout,
-            )
-            for _ in range(config.n_layers)
-        ])
-        self.decoder = Decoder(config.d_model, blocks)
+        blocks = nn.ModuleList(
+            [
+                DecoderBlock(
+                    config.d_model,
+                    MultiHeadAttention(
+                        config.d_model, config.n_heads, config.dropout, config.qk_norm
+                    ),
+                    (SwiGLUBlock if config.ffn_type == "swiglu" else FeedFowordBlock)(
+                        config.d_model, config.d_ff, config.dropout
+                    ),
+                    config.dropout,
+                    config.norm_type,
+                )
+                for _ in range(config.n_layers)
+            ]
+        )
+        self.decoder = Decoder(config.d_model, blocks, config.norm_type)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
         # Scratch-only initialization for this model's new Linear weights;
         # existing EmbeddingLayer initializes its own token weights with std=.02.
@@ -161,7 +209,9 @@ class GPTModel(nn.Module):
             raise TypeError("input_ids must be torch.long (int64)")
         B, T = input_ids.shape
         if B == 0 or T == 0 or T > self.config.seq_len:
-            raise ValueError(f"Input shape incompatible with context length {self.config.seq_len}")
+            raise ValueError(
+                f"Input shape incompatible with context length {self.config.seq_len}"
+            )
         x, (cos, sin) = self.embed(input_ids)  # teammate's embedding.py
         mask = torch.ones((T, T), device=input_ids.device, dtype=torch.bool).tril()
         mask = mask[None, None, :, :]  # [1,1,T,T] broadcasts over B and heads
@@ -169,7 +219,16 @@ class GPTModel(nn.Module):
         return self.lm_head(x)  # [B,T,V] raw logits, no softmax
 
 
-def build_language_model(vocab_size: int, seq_len: int, d_model: int = 256,
-                         N: int = 6, h: int = 8, dropout: float = 0.1,
-                         d_ff: int = 1024, pad_id: int | None = 0) -> GPTModel:
-    return GPTModel(GPTConfig(vocab_size, seq_len, d_model, N, h, d_ff, dropout, pad_id))
+def build_language_model(
+    vocab_size: int,
+    seq_len: int,
+    d_model: int = 256,
+    N: int = 6,
+    h: int = 8,
+    dropout: float = 0.1,
+    d_ff: int = 1024,
+    pad_id: int | None = 0,
+) -> GPTModel:
+    return GPTModel(
+        GPTConfig(vocab_size, seq_len, d_model, N, h, d_ff, dropout, pad_id)
+    )
