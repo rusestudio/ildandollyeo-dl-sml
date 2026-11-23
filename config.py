@@ -75,3 +75,35 @@ class PretrainConfig:
     max_new_tokens: int = cfg.train.max_new_tokens
     temperature: float = cfg.train.temperature
     top_k: int = cfg.train.top_k
+
+
+@dataclass
+class FinetuneConfig:
+    data_path: str = cfg.paths.finetune_data
+    out_dir: str = cfg.paths.finetune_checkpoint
+    pretrained_path: str = cfg.finetune.pretrained_path
+
+    prompt_template: str = cfg.finetune.prompt_template
+    output_column: str = cfg.finetune.output_column
+    val_size: float = cfg.finetune.val_size
+    split_seed: int = cfg.finetune.split_seed
+
+    batch_size: int = cfg.finetune.batch_size
+    gradient_accumulation_steps: int = cfg.finetune.gradient_accumulation_steps
+    num_epochs: int = cfg.finetune.num_epochs
+    learning_rate: float = cfg.finetune.learning_rate
+    min_lr: float = cfg.finetune.min_lr
+    warmup_ratio: float = cfg.finetune.warmup_ratio
+    adam_betas: tuple[float, float] = tuple(cfg.finetune.adam_betas)
+    weight_decay: float = cfg.finetune.weight_decay
+    max_grad_norm: float = cfg.finetune.max_grad_norm
+    dropout: float = cfg.finetune.dropout
+
+    eval_steps: int = cfg.finetune.eval_steps
+    log_steps: int = cfg.finetune.log_steps
+    random_seed: int = cfg.finetune.seed
+
+    # 학습 중 샘플 생성
+    max_new_tokens: int = cfg.finetune.max_new_tokens
+    temperature: float = cfg.finetune.temperature
+    top_k: int = cfg.finetune.top_k

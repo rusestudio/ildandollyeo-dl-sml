@@ -3,6 +3,7 @@ defaults:
   - tokenizer: byte_bpe
   - model: sml_v1
   - train: pretrain
+  - finetune: sft
   - _self_
 
 # path는 개발 환경에 따라 수정하시면 됩니다~
@@ -12,5 +13,7 @@ paths:
   tokenizer: data/tokenizer/tokenizer.json
   processed: data/processed
   checkpoint: checkpoints
+  finetune_data: /data/finetuning-dataset/train.parquet
+  finetune_checkpoint: checkpoints/finetune
 
 seed: 42
