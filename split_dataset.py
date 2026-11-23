@@ -7,6 +7,7 @@ data_config = DataConfig()
 
 RAW_DIR = Path(data_config.raw_dir)
 VAL_SIZE = data_config.val_size
+TEST_SIZE = data_config.test_size
 SEED = data_config.random_seed
 NUM_PROC = data_config.num_proc
 
@@ -21,10 +22,15 @@ def load_split():
     global _split
     if _split is None:
         dataset = load_dataset("parquet", data_files=list_files(), num_proc=NUM_PROC)
+        # train / holdout -> holdout 을 val / test 로
         split_dataset = dataset["train"].train_test_split(
-            test_size=VAL_SIZE, seed=SEED, shuffle=True
+            test_size=VAL_SIZE + TEST_SIZE, seed=SEED, shuffle=True
         )
-        split_dataset["val"] = split_dataset.pop("test")
+        holdout = split_dataset["test"].train_test_split(
+            test_size=TEST_SIZE / (VAL_SIZE + TEST_SIZE), seed=SEED, shuffle=True
+        )
+        split_dataset["val"] = holdout["train"]
+        split_dataset["test"] = holdout["test"]
         _split = split_dataset
     return _split
 
@@ -41,5 +47,5 @@ def iter_texts(split="train", max_docs=None):
 if __name__ == "__main__":
     s = load_split()
     print(s)
-    print("train:", len(s["train"]), "val:", len(s["val"]))
+    print("train:", len(s["train"]), "val:", len(s["val"]), "test:", len(s["test"]))
     print("HEAD 300:", s["train"][0]["text"][:300])
