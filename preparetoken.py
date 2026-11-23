@@ -9,7 +9,7 @@ from tokenizers import Tokenizer
 
 from config import DataConfig, TokenizerConfig
 from dataset import build_dataloaders, load_packed_datasets
-from split_dataset import SEED, VAL_SIZE, list_files, load_split, iter_texts
+from split_dataset import SEED, VAL_SIZE, TEST_SIZE, list_files, load_split, iter_texts
 
 data_config = DataConfig()
 tokenizer_config = TokenizerConfig()
@@ -196,6 +196,14 @@ def prepare(
         dtype,
         batch_docs,
     )
+    test_info = encode_to_bin(
+        tokenizer,
+        iter_texts(split="test"),
+        output / "test.bin",
+        eos_id,
+        dtype,
+        batch_docs,
+    )
 
     meta = {
         "description": "Flat EOS-separated BPE ID streams for causal next-token LM",
@@ -203,6 +211,7 @@ def prepare(
         "source_files": [Path(f).name for f in files],
         "split_seed": SEED,
         "validation_fraction": VAL_SIZE,
+        "test_fraction": TEST_SIZE,
         "tokenizer_path": str(TOKENIZER_PATH).replace("\\", "/"),
         "tokenizer_sha256": file_sha256(TOKENIZER_PATH),
         "vocab_size": vocab_size,
@@ -217,6 +226,7 @@ def prepare(
         "target_shift": 1,
         "train": train_info,
         "val": val_info,
+        "test": test_info,
     }
     (output / "meta.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
