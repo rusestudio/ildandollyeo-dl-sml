@@ -18,6 +18,25 @@ class GPTConfig:
     dropout: float = 0.1
     pad_id: int | None = 0
     ffn_type: str = "relu"  # relu, swiglu 테스트 옵션
+    norm_type: str = "layernorm"  # layernorm, rmsnorm
+    qk_norm: bool = False  # attention q, k 정규화
+
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-6):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(dim))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        dtype = x.dtype
+        x = x.float()  # 학습은 bf16인데, norm 은 fp32로 계산
+        x = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        return self.weight * x.to(dtype)
+
+
+def make_norm(norm_type: str, dim: int) -> nn.Module:
+    return RMSNorm(dim) if norm_type == "rmsnorm" else nn.LayerNorm(dim)
 
 class FeedFowordBlock(nn.Module):
     def __init__(self, d_model: int, d_ff: int, dropout: float):
@@ -40,17 +59,17 @@ class SwiGLUBlock(nn.Module):
         return self.w_down(self.dropout(F.silu(self.w_gate(x)) * self.w_up(x)))
 
 class ResConnection(nn.Module):
-    def __init__(self, features: int, dropout: float):
+    def __init__(self, features: int, dropout: float, norm_type: str = "layernorm"):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
-        self.norm = nn.LayerNorm(features)
+        self.norm = make_norm(norm_type, features)
 
     def forward(self, x: torch.Tensor, sublayer):
         return x + self.dropout(sublayer(self.norm(x)))
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model: int, h: int, dropout: float):
+    def __init__(self, d_model: int, h: int, dropout: float, qk_norm: bool = False):
         super().__init__()
         if d_model % h:
             raise ValueError("d_model must be divisible by h")
@@ -65,6 +84,10 @@ class MultiHeadAttention(nn.Module):
         self.w_v = nn.Linear(d_model, d_model, bias=False)
         self.w_o = nn.Linear(d_model, d_model, bias=False)
         self.dropout = nn.Dropout(dropout)
+        self.qk_norm = qk_norm
+        if qk_norm:
+            self.q_norm = RMSNorm(self.d_k)
+            self.k_norm = RMSNorm(self.d_k)
 
     def forward(self, x: torch.Tensor, cos: torch.Tensor,
                 sin: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -76,6 +99,10 @@ class MultiHeadAttention(nn.Module):
         q = self.w_q(x).reshape(B, T, self.h, self.d_k).transpose(1, 2)
         k = self.w_k(x).reshape(B, T, self.h, self.d_k).transpose(1, 2)
         v = self.w_v(x).reshape(B, T, self.h, self.d_k).transpose(1, 2)
+
+        if self.qk_norm:
+            q = self.q_norm(q)  # head 차원(d_k) 기준 정규화, rope 전에
+            k = self.k_norm(k)
 
         # embedding.py supplies real RoPE functions. Q/K must be rotated
         # AFTER reshaping into heads but BEFORE the scaled-dot-product.
@@ -93,12 +120,13 @@ class MultiHeadAttention(nn.Module):
 
 class DecoderBlock(nn.Module):
     def __init__(self, features: int, self_attention_block: MultiHeadAttention,
-                 feed_forward_block: FeedFowordBlock, dropout: float):
+                 feed_forward_block: FeedFowordBlock, dropout: float,
+                 norm_type: str = "layernorm"):
         super().__init__()
         self.self_attention_block = self_attention_block
         self.feed_forward_block = feed_forward_block
         self.residual_connections = nn.ModuleList(
-            [ResConnection(features, dropout) for _ in range(2)]
+            [ResConnection(features, dropout, norm_type) for _ in range(2)]
         )
 
     def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
@@ -111,10 +139,10 @@ class DecoderBlock(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, features: int, layers: nn.ModuleList):
+    def __init__(self, features: int, layers: nn.ModuleList, norm_type: str = "layernorm"):
         super().__init__()
         self.layers = layers
-        self.norm = nn.LayerNorm(features)
+        self.norm = make_norm(norm_type, features)
 
     def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
                 mask: torch.Tensor) -> torch.Tensor:
@@ -137,14 +165,15 @@ class GPTModel(nn.Module):
         blocks = nn.ModuleList([
             DecoderBlock(
                 config.d_model,
-                MultiHeadAttention(config.d_model, config.n_heads, config.dropout),
+                MultiHeadAttention(config.d_model, config.n_heads, config.dropout, config.qk_norm),
                 (SwiGLUBlock if config.ffn_type == "swiglu" else FeedFowordBlock)
                 (config.d_model, config.d_ff, config.dropout),
                 config.dropout,
+                config.norm_type,
             )
             for _ in range(config.n_layers)
         ])
-        self.decoder = Decoder(config.d_model, blocks)
+        self.decoder = Decoder(config.d_model, blocks, config.norm_type)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
         # Scratch-only initialization for this model's new Linear weights;
         # existing EmbeddingLayer initializes its own token weights with std=.02.
