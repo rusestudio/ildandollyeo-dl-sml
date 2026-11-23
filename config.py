@@ -1,68 +1,77 @@
+import sys
 from dataclasses import dataclass
+
+from conf.setting import load_config
+
+cfg = load_config(sys.argv[1:])
 
 
 @dataclass
 class DataConfig:
     # download.py
-    download_dir: str = "data/raw"
-    download_pattern: str = "sample/10BT/013_00000.parquet"  # 우선 샘플 하나만
+    download_dir: str = cfg.paths.download
+    download_pattern: str = cfg.data.download_pattern
 
     # split_dataset.py
-    raw_dir: str = "data/raw/sample/10BT"
-    val_size: float = 0.0005
-    random_seed: int = 42
-    num_proc: int = 8
+    raw_dir: str = cfg.paths.raw
+    val_size: float = cfg.data.val_size
+    random_seed: int = cfg.data.split_seed
+    num_proc: int = cfg.data.num_proc
 
     # preparetoken.py
-    processed_dir: str = "data/processed"
-    max_train_docs: int = 20000  # 0 = 전체
-    max_val_docs: int = 0  # 0 = 전체
-    seq_len: int = 256  # 모델 context 길이
-    encode_batch_docs: int = 128  # 토큰화할 때 한 번에 묶는 문서 수
-    verify_batch_size: int = 4  # 데이터 확인용 배치 크기
+    processed_dir: str = cfg.paths.processed
+    max_train_docs: int = cfg.data.max_train_docs
+    max_val_docs: int = cfg.data.max_val_docs
+    seq_len: int = cfg.data.seq_len
+    encode_batch_docs: int = cfg.data.encode_batch_docs
+    verify_batch_size: int = cfg.data.verify_batch_size
 
 
 @dataclass
 class TokenizerConfig:
-    tokenizer_path: str = "data/tokenizer/tokenizer.json"
-    vocab_size: int = 16000
-    max_docs: int = 20000  # 토크나이저 학습에 쓸 문서 수
-    max_token_length: int = 16
-    num_val_docs: int = 4  # 토크나이저 검증용 문서 수
+    tokenizer_path: str = cfg.paths.tokenizer
+    vocab_size: int = cfg.tokenizer.vocab_size
+    max_docs: int = cfg.tokenizer.max_docs
+    max_token_length: int = cfg.tokenizer.max_token_length
+    num_val_docs: int = cfg.tokenizer.num_val_docs
 
 
 @dataclass
 class ModelConfig:
-    hidden_size: int = 256
-    num_layers: int = 6
-    num_heads: int = 8
-    ffn_hidden_size: int = 1024
-    dropout: float = 0.1
+    hidden_size: int = cfg.model.d_model
+    num_layers: int = cfg.model.n_layers
+    num_heads: int = cfg.model.n_heads
+    ffn_hidden_size: int = cfg.model.d_ff
+    dropout: float = cfg.model.dropout
+    ffn_type: str = cfg.model.ffn_type
 
 
 @dataclass
 class PretrainConfig:
-    out_dir: str = "checkpoints"
+    out_dir: str = cfg.paths.checkpoint
 
-    batch_size: int = 32  # gpu 메모리에 맞게 조절
-    gradient_accumulation_steps: int = 4
-    max_steps: int = 200
-    learning_rate: float = 6e-4
-    min_lr: float = 6e-5
-    warmup_steps: int = 200
-    adam_betas: tuple[float, float] = (0.9, 0.95)
-    weight_decay: float = 0.1
-    max_grad_norm: float = 1.0  # gradient clipping
+    batch_size: int = cfg.train.batch_size
+    gradient_accumulation_steps: int = cfg.train.gradient_accumulation_steps
+    max_steps: int = cfg.train.max_steps
+    learning_rate: float = cfg.train.learning_rate
+    min_lr: float = cfg.train.min_lr
+    warmup_steps: int = cfg.train.warmup_steps
+    decay_ratio: float = cfg.train.decay_ratio
+    z_loss: float = cfg.train.z_loss
+    adam_betas: tuple[float, float] = tuple(cfg.train.adam_betas)
+    weight_decay: float = cfg.train.weight_decay
+    max_grad_norm: float = cfg.train.max_grad_norm
+    compile: bool = cfg.train.compile
 
-    eval_steps: int = 250
-    eval_iters: int = 50
-    log_steps: int = 10
-    num_workers: int = 2
-    resume_from_checkpoint: bool = False
-    random_seed: int = 42
+    eval_steps: int = cfg.train.eval_steps
+    eval_iters: int = cfg.train.eval_iters
+    log_steps: int = cfg.train.log_steps
+    num_workers: int = cfg.train.num_workers
+    resume_from_checkpoint: bool = cfg.train.resume_from_checkpoint
+    random_seed: int = cfg.train.seed
 
     # 학습 중 샘플 생성
-    sample_prompt: str = "The meaning of education is"
-    max_new_tokens: int = 100
-    temperature: float = 0.8
-    top_k: int = 50
+    sample_prompt: str = cfg.train.sample_prompt
+    max_new_tokens: int = cfg.train.max_new_tokens
+    temperature: float = cfg.train.temperature
+    top_k: int = cfg.train.top_k
