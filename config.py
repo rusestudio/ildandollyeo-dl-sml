@@ -98,6 +98,8 @@ class FinetuneConfig:
     weight_decay: float = cfg.finetune.weight_decay
     max_grad_norm: float = cfg.finetune.max_grad_norm
     dropout: float = cfg.finetune.dropout
+    choice_loss: bool = cfg.finetune.choice_loss
+
 
     eval_steps: int = cfg.finetune.eval_steps
     log_steps: int = cfg.finetune.log_steps
