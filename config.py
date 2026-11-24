@@ -85,7 +85,7 @@ class FinetuneConfig:
     pretrained_path: str = cfg.finetune.pretrained_path
 
     prompt_template: str = cfg.finetune.prompt_template
-    output_column: str = cfg.finetune.output_column
+    answer_options: tuple[str, ...] = tuple(cfg.finetune.answer_options)
     val_size: float = cfg.finetune.val_size
     split_seed: int = cfg.finetune.split_seed
 

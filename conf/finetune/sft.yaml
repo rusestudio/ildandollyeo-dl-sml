@@ -1,8 +1,8 @@
 pretrained_path: ${paths.checkpoint}/ckpt.pt
 
 # 입출력 형식 확인 후 컬럼명, 템플릿 수정
-prompt_template: "{input}\n"  # 입력 컬럼을 {컬럼명}으로 넣음.
-output_column: output
+prompt_template: "{question}\nA. {choices[0]}\nB. {choices[1]}\nC. {choices[2]}\nD. {choices[3]}\nAnswer:"  # 입력 컬럼을 {컬럼명}으로 넣음.
+answer_options: ["A", "B", "C", "D"]
 val_size: 0.02
 split_seed: ${seed}
 
