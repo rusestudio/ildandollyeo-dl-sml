@@ -84,6 +84,7 @@ def infinite_batches():
 if __name__ == "__main__":
     if train_config.wandb_log:
         wandb.init(
+            entity="ildandollyeo-sml-train",
             project=train_config.wandb_project,
             name=train_config.wandb_run_name or None,
             config={**asdict(model_config), **asdict(train_config)},
@@ -95,8 +96,10 @@ if __name__ == "__main__":
             if hasattr(train_config, k):
                 setattr(train_config, k, v)
         wandb.run.name = (
-            f"lr{train_config.learning_rate}_do{model_config.dropout}"
-            f"_wd{train_config.weight_decay}_{train_config.max_steps}st"
+            f"{train_config.optimizer_name}_"
+            f"muon{train_config.muon_lr:g}_"
+            f"adamw{train_config.muon_adamw_lr:g}_"
+            f"{train_config.max_steps}st"
         )
         train_config.out_dir = os.path.join(train_config.out_dir, wandb.run.name)
 
@@ -135,27 +138,120 @@ if __name__ == "__main__":
     )
 
     # optimizer
-    decay_params = [p for p in model.parameters() if p.dim() >= 2]
-    nodecay_params = [p for p in model.parameters() if p.dim() < 2]
-    optimizer = torch.optim.AdamW(
-        [
-            {"params": decay_params, "weight_decay": train_config.weight_decay},
-            {"params": nodecay_params, "weight_decay": 0.0},
-        ],
-        lr=train_config.learning_rate,
-        betas=train_config.adam_betas,
-    )
+    # optimizer: AdamW or Muon + AdamW
+    muon_optimizer = None
+
+    if train_config.optimizer_name == "muon":
+        # Muon only for hidden-layer weight matrices.
+        muon_params = [
+            p for name, p in model.named_parameters()
+            if name.startswith("decoder.layers.") and p.ndim == 2
+        ]
+
+        muon_ids = {id(p) for p in muon_params}
+        adamw_params = [
+            p for p in model.parameters()
+            if id(p) not in muon_ids
+        ]
+
+        if not muon_params:
+            raise RuntimeError("No hidden-layer parameters for Muon")
+
+        muon_optimizer = torch.optim.Muon(
+            muon_params,
+            lr=train_config.muon_lr,
+            momentum=train_config.muon_momentum,
+            weight_decay=train_config.muon_weight_decay,
+        )
+
+        optimizer = torch.optim.AdamW(
+            [
+                {
+                    "params": [p for p in adamw_params if p.ndim >= 2],
+                    "weight_decay": train_config.weight_decay,
+                },
+                {
+                    "params": [p for p in adamw_params if p.ndim < 2],
+                    "weight_decay": 0.0,
+                },
+            ],
+            lr=train_config.muon_adamw_lr,
+            betas=train_config.adam_betas,
+        )
+
+        print(f"Muon parameters: {sum(p.numel() for p in muon_params):,}")
+        print(f"AdamW parameters: {sum(p.numel() for p in adamw_params):,}")
+
+    elif train_config.optimizer_name == "adamw":
+        decay_params = [p for p in model.parameters() if p.ndim >= 2]
+        nodecay_params = [p for p in model.parameters() if p.ndim < 2]
+
+        optimizer = torch.optim.AdamW(
+            [
+                {"params": decay_params, "weight_decay": train_config.weight_decay},
+                {"params": nodecay_params, "weight_decay": 0.0},
+            ],
+            lr=train_config.learning_rate,
+            betas=train_config.adam_betas,
+        )
+
+    else:
+        raise ValueError(f"Unknown optimizer: {train_config.optimizer_name}")
+
+    print(f"Optimizer: {train_config.optimizer_name}")
 
     start_step = 0
     best_val_loss = 1e9
+
+    def save_checkpoint(filename, completed_steps):
+        checkpoint = {
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "muon_optimizer": (
+                muon_optimizer.state_dict()
+                if muon_optimizer is not None else None
+            ),
+            "optimizer_name": train_config.optimizer_name,
+            "gpt_config": asdict(gpt_config),
+            "step": completed_steps,
+            "best_val_loss": best_val_loss,
+            "torch_rng_state": torch.get_rng_state(),
+            "cuda_rng_state_all": (
+                torch.cuda.get_rng_state_all()
+                if device == "cuda" else None
+            ),
+        }
+        path = os.path.join(train_config.out_dir, filename)
+        temp_path = path + ".tmp"
+
+        torch.save(checkpoint, temp_path)
+        os.replace(temp_path, path)
+
     if train_config.resume_from_checkpoint:
         checkpoint = torch.load(
-            os.path.join(train_config.out_dir, "ckpt.pt"), map_location=device
+            os.path.join(train_config.out_dir, "latest.pt"), map_location=device
         )
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         start_step = checkpoint["step"]
-        best_val_loss = checkpoint["best_val_loss"]
+        saved_optimizer = checkpoint.get("optimizer_name", "adamw")
+
+        if saved_optimizer != train_config.optimizer_name:
+            raise RuntimeError("Checkpoint optimizer does not match configuration")
+
+        if muon_optimizer is not None:
+            if checkpoint.get("muon_optimizer") is None:
+                raise RuntimeError("Missing Muon optimizer state")
+            muon_optimizer.load_state_dict(checkpoint["muon_optimizer"])
+            best_val_loss = checkpoint["best_val_loss"]
+            if "torch_rng_state" in checkpoint:
+                torch.set_rng_state(checkpoint["torch_rng_state"].cpu())
+
+            if checkpoint.get("cuda_rng_state_all") is not None:
+                torch.cuda.set_rng_state_all([
+                    state.cpu()
+                    for state in checkpoint["cuda_rng_state_all"]
+                ])
 
     # training loop
     batches = infinite_batches()
@@ -182,17 +278,31 @@ if __name__ == "__main__":
                     "gpt_config": asdict(gpt_config),
                     "step": step,
                     "best_val_loss": best_val_loss,
+                    "optimizer_name": train_config.optimizer_name,
+                    "muon_optimizer": (
+                        muon_optimizer.state_dict()
+                        if muon_optimizer is not None else None
+                    ),
                 }
-                print(f"saving checkpoint to {train_config.out_dir}")
-                torch.save(checkpoint, os.path.join(train_config.out_dir, "ckpt.pt"))
+            if train_config.save_best_model:
+                save_checkpoint("best.pt", step)
             print(generate(train_config.sample_prompt))
 
         if last_step:
             break
 
         lr = get_lr(step)
-        for param_group in optimizer.param_groups:
-            param_group["lr"] = lr
+        lr_scale = lr / train_config.learning_rate
+
+        if muon_optimizer is None:
+            for group in optimizer.param_groups:
+                group["lr"] = lr
+        else:
+            for group in optimizer.param_groups:
+                group["lr"] = train_config.muon_adamw_lr * lr_scale
+
+            for group in muon_optimizer.param_groups:
+                group["lr"] = train_config.muon_lr * lr_scale
 
         loss_accum = 0.0
         for micro_step in range(train_config.gradient_accumulation_steps):
@@ -208,16 +318,42 @@ if __name__ == "__main__":
             model.parameters(), train_config.max_grad_norm
         )
         optimizer.step()
+
+        if muon_optimizer is not None:
+            muon_optimizer.step()
+
         optimizer.zero_grad(set_to_none=True)
 
-        if step % train_config.log_steps == 0:
-            dt = time.time() - t0
-            t0 = time.time()
-            print(
-                f"step {step}: loss {loss_accum:.4f}, lr {lr:.2e}, norm {norm:.2f}, time {dt * 1000:.0f}ms"
+        if muon_optimizer is not None:
+            muon_optimizer.zero_grad(set_to_none=True)
+
+            completed_steps = step + 1
+
+        if completed_steps % train_config.save_steps == 0:
+            save_checkpoint("latest.pt", completed_steps)
+
+        if train_config.wandb_log:
+            wandb.log(
+                {
+                    "train/loss": loss_accum,
+                    "train/grad_norm": norm.item(),
+                    "train/muon_lr": muon_optimizer.param_groups[0]["lr"]
+                        if muon_optimizer is not None else 0.0,
+                    "train/adamw_lr": optimizer.param_groups[0]["lr"],
+                    "train/tokens_processed_est": (
+                        (step + 1)
+                        * train_config.batch_size
+                        * train_config.gradient_accumulation_steps
+                        * gpt_config.seq_len
+                    ),
+                },
+                 step=step,
             )
-            if train_config.wandb_log:
-                wandb.log(
-                    {"train/loss": loss_accum, "lr": lr, "grad_norm": norm.item()},
-                    step=step,
-                )
+
+        save_checkpoint("latest.pt", train_config.max_steps)
+
+    if train_config.save_final_model:
+        save_checkpoint("final.pt", train_config.max_steps)
+
+    if train_config.wandb_log:
+        wandb.finish()

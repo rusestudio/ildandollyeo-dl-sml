@@ -1,0 +1,64 @@
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local environment variables
+.env
+.env.*
+
+# Datasets and model checkpoints
+/data/
+/checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Experiment logs and tracking
+*.log
+/wandb/
+/tuning/logs/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Folders shown in your screenshot
+/__pycache__/
+/checkpoints/
+/data/
+/ildandollyeo/
+/tuning/
+/wandb/
+
+# Python cache anywhere
+__pycache__/
+*.py[cod]
+
+# Log files
+*.log
+
+# YAML files, including sweep.yaml
+*.yaml
+*.yml
+
+# Model checkpoint files
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Virtual environments and environment variables
+.venv/
+venv/
+.env
+.env.*
+
+# Operating system files
+.DS_Store
+Thumbs.db

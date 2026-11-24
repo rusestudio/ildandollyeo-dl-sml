@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 from datasets import load_dataset
 
 from config import DataConfig
@@ -21,6 +22,18 @@ def list_files():
 def load_split():
     global _split
     if _split is None:
+        files = list_files()
+
+        if not files:
+            raise FileNotFoundError("No Parquet files found.")
+
+        _split = load_dataset(
+            "parquet",
+            data_files=files,
+            split="train",
+            streaming=True,
+        )
+
         dataset = load_dataset("parquet", data_files=list_files(), num_proc=NUM_PROC)
         # train / holdout -> holdout 을 val / test 로
         split_dataset = dataset["train"].train_test_split(
@@ -34,6 +47,26 @@ def load_split():
         _split = split_dataset
     return _split
 
+def assign_split(text):
+    key = str(SEED).encode("utf-8")
+
+    digest = hashlib.blake2b(
+        text.encode("utf-8"),
+        digest_size=8,
+        key=key,
+    ).digest()
+
+    bucket = int.from_bytes(digest, "big") % 1_000_000
+
+    test_threshold = round(TEST_SIZE * 1_000_000)
+    val_threshold = test_threshold + round(VAL_SIZE * 1_000_000)
+
+    if bucket < test_threshold:
+        return "test"
+    if bucket < val_threshold:
+        return "val"
+
+    return "train"
 
 def iter_texts(split="train", max_docs=None):
     ds = load_split()[split].select_columns(["text"])

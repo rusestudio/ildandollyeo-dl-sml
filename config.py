@@ -9,7 +9,7 @@ class DataConfig:
     # 샘플 하나만 하면서 튜닝 후, 전체 파일
 
     # split_dataset.py
-    raw_dir: str = "data/raw/sample/10BT"
+    raw_dir: str = "/data/fineweb-edu/sample/10BT"    
     val_size: float = 0.0005
     test_size: float = 0.0005
     random_seed: int = 42
@@ -48,12 +48,21 @@ class PretrainConfig:
 
     batch_size: int = 32  # gpu 메모리에 맞게 조절
     gradient_accumulation_steps: int = 2  # 한 step = 32 x 2 x 256 = 16,384 토큰
-    max_steps: int = 674244  # 12600  # 1 epoch
+    max_steps: int = 674245  # 12600  # 1 epoch
     learning_rate: float = 2e-3
     min_lr: float = 2e-4
     warmup_steps: int = 2000
     adam_betas: tuple[float, float] = (0.9, 0.95)
     weight_decay: float = 0.1
+
+    # Optimizer selection
+    optimizer_name: str = "muon"  # "adamw" or "muon"
+
+    # Muon configuration
+    muon_lr: float = 0.02
+    muon_momentum: float = 0.95
+    muon_weight_decay: float = 0.1
+    muon_adamw_lr: float = 3e-4
     max_grad_norm: float = 1.0  # gradient clipping
 
     eval_steps: int = 10000
@@ -61,6 +70,9 @@ class PretrainConfig:
     log_steps: int = 10
     num_workers: int = 2
     resume_from_checkpoint: bool = False
+    save_steps: int = 2000
+    save_best_model: bool = True
+    save_final_model: bool = True
     random_seed: int = 42
 
     # 학습 중 샘플 생성
@@ -71,5 +83,5 @@ class PretrainConfig:
 
     # wandb
     wandb_log: bool = True
-    wandb_project: str = "ildandollyeo-sml"
+    wandb_project: str = "ildandollyeo-sml-train"
     wandb_run_name: str = ""
