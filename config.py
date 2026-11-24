@@ -15,6 +15,7 @@ class DataConfig:
     # split_dataset.py
     raw_dir: str = cfg.paths.raw
     val_size: float = cfg.data.val_size
+    test_size: float = cfg.data.test_size
     random_seed: int = cfg.data.split_seed
     num_proc: int = cfg.data.num_proc
 

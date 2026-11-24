@@ -3,6 +3,7 @@ download_pattern: sample/10BT/00[0-6]_00000.parquet  # 7개 파일 약 5B 토큰
 
 # split_dataset.py
 val_size: 0.0005
+test_size: 0.0005
 split_seed: ${seed}
 num_proc: 8
 
