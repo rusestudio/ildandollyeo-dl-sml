@@ -118,7 +118,7 @@ python finetune.py finetune.learning_rate=5e-5 finetune.dropout=0.0 finetune.num
 Hydra 설정은 `code/conf/`에 있고, 명령줄에서 `key=value`로 덮어쓸 수 있습니다. 
 사전학습 데이터 경로(`paths.raw`, `paths.processed`)는 학습 서버 기준이므로 환경에 맞게 수정해야 합니다.
 
-## Training Details
+## Details
 
 ### Pretraining
 
