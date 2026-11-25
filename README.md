@@ -3,18 +3,18 @@
 ## Overview
 | 구분 | 내용 |
 |-----|-----|
-| 모델 | Decoder-only Transformer (GPT), **324.7M** parameters |
+| 모델 | Decoder-only Transformer (GPT), 324.7M parameters |
 | 토크나이저 | Byte-Level BPE, vocab 16,000 (직접 학습) |
 | 사전학습 데이터 | FineWeb-Edu sample-10BT (외부 사전학습 모델·데이터 미사용) |
 | 파인튜닝 데이터 | `/data/finetuning-dataset/train.parquet` (99,842문항, 추가 데이터 X) |
-| 파인튜닝 결과 | val acc **0.5861**, val AUC 0.8149 (train.parquet 중 5% 4,975문항 hold-out) |
+| 파인튜닝 결과 | val acc 0.5861, val AUC 0.8149 (train.parquet 중 5% 4,975문항 hold-out) |
 
 ## Features
 
-- **모델 구조**: d_model 1024, 24 layers, 16 heads (head_dim 64), context 1024 tokens
-- **구성 요소**: RoPE 위치 임베딩, SwiGLU FFN (d_ff 2816), RMSNorm (pre-norm), QK-norm, 입력 임베딩–출력층 weight tying
-- **사전학습**: AdamW, WSD 스케줄 (warmup 400 → 유지 → 마지막 20% 선형 감소), z-loss 1e-4, bf16
-- **파인튜닝**: `[BOS]` + 문제/보기 + `Answer:` 뒤 정답 토큰(A/B/C/D) 위치에서만 loss 계산
+- 모델 구조: d_model 1024, 24 layers, 16 heads (head_dim 64), context 1024 tokens
+- 구성 요소: RoPE 위치 임베딩, SwiGLU FFN (d_ff 2816), RMSNorm (pre-norm), QK-norm, 입력 임베딩–출력층 weight tying
+- 사전학습: AdamW, WSD 스케줄 (warmup 400 → 유지 → 마지막 20% 선형 감소), z-loss 1e-4, bf16
+- 파인튜닝: `[BOS]` + 문제/보기 + `Answer:` 뒤 정답 토큰(A/B/C/D) 위치에서만 loss 계산
 
 ## Directory Structure
 
@@ -78,8 +78,8 @@ model = model.cuda().eval()
 
 토크나이저 참고 사항:
 - special token id: `[PAD]`=0, `[BOS]`=1, `[EOS]`=2
-- `tokenizer.encode()`는 BOS/EOS를 **자동으로 붙이지 않습니다**. 입력 맨 앞에 `[BOS]`를 직접 붙입니다.
-- `"A"`, `"B"`, `"C"`, `"D"`는 각각 토큰 1개(id 41–44)입니다.
+- `tokenizer.encode()`는 BOS/EOS를 자동으로 붙이지 않기 때문에 입력 맨 앞에 `[BOS]`를 직접 붙여야 합니다.
+- `"A"`, `"B"`, `"C"`, `"D"`는 각각 토큰 1개(id 41~44)입니다.
 
 ### 2. 입출력 형식
 
@@ -92,7 +92,7 @@ def build_context(sample):
     return f"{question}\n{choices_str}\nAnswer: "
 
 input_ids = [bos_id] + tokenizer.encode(build_context(sample)).ids
-# 마지막 위치의 logit에서 A/B/C/D 토큰 중 가장 높은 것을 정답으로 사용
+# 마지막 위치의 logit에서 가장 높은 값의 토큰을 정답으로 사용함
 ```
 
 ### 3. exec
@@ -125,11 +125,11 @@ Hydra 설정은 `code/conf/`에 있고, 명령줄에서 `key=value`로 덮어쓸
 | 항목 | 값 |
 |---|---|
 | 데이터 | FineWeb-Edu sample-10BT 중 parquet 14개 (`000`–`013_00000.parquet`), 토큰화 후 train 11.05B tokens |
-| 학습량 | 8,000 step × 약 0.5M tokens/step ≈ **4.2B tokens** (train 토큰의 약 38%) |
+| 학습량 | 8,000 step × 약 0.5M tokens/step ≈ 4.2B tokens (train 토큰의 약 38%) |
 | batch | 16 × grad accum 32 × seq 1024 |
 | optimizer | AdamW (β 0.9/0.95, weight decay 0.1), grad clip 1.0 |
 | learning rate | 3e-4 → 3e-5, warmup 400 step, WSD (마지막 20% 감소) |
-| 결과 | best val loss **2.684** |
+| 결과 | best val loss 2.684 |
 
 ### Finetuning
 
@@ -142,4 +142,4 @@ Hydra 설정은 `code/conf/`에 있고, 명령줄에서 `key=value`로 덮어쓸
 | optimizer | AdamW (β 0.9/0.95, weight decay 0.1), warmup 3% 후 선형 감소 (5e-5 → 5e-6) |
 | learning rate / dropout | 5e-5 / 0.0 |
 | 선택 | lr {2e-5, 5e-5, 1e-4} × dropout {0.0, 0.1} sweep 중 val acc 최고 (step 3,700 체크포인트) |
-| 결과 | val acc **0.5861**, val AUC **0.8149** |
+| 결과 | val acc 0.5861, val AUC 0.8149 |
