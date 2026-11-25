@@ -63,12 +63,13 @@ pip install torch tokenizers datasets hydra-core omegaconf scikit-learn pandas p
 import sys, torch
 from tokenizers import Tokenizer
 
-sys.path.insert(0, "code")                       # models/ 폴더 기준
+sys.path.insert(0, "code") # models/ 폴더 기준
 from gpt_model import GPTConfig, GPTModel
 
 tokenizer = Tokenizer.from_file("tokenizer/tokenizer.json")
 
-ckpt = torch.load("checkpoints/finetuned.pt", map_location="cpu")   # 또는 pretrained.pt
+ckpt = torch.load("checkpoints/finetuned.pt", map_location="cpu") # 파인튜닝 모델
+### ckpt = torch.load("checkpoints/pretrained.pt", map_location="cpu") # 사전학습 모델
 model = GPTModel(GPTConfig(**{**ckpt["gpt_config"], "dropout": 0.0}))
 model.load_state_dict(ckpt["model"])
 model = model.cuda().eval()
@@ -79,7 +80,6 @@ model = model.cuda().eval()
 토크나이저 참고 사항:
 - special token id: `[PAD]`=0, `[BOS]`=1, `[EOS]`=2
 - `tokenizer.encode()`는 BOS/EOS를 자동으로 붙이지 않기 때문에 입력 맨 앞에 `[BOS]`를 직접 붙여야 합니다.
-- `"A"`, `"B"`, `"C"`, `"D"`는 각각 토큰 1개(id 41~44)입니다.
 
 ### 2. 입출력 형식
 
@@ -99,20 +99,20 @@ input_ids = [bos_id] + tokenizer.encode(build_context(sample)).ids
 
 ```bash
 cd models
-python load_model.py                                    # finetuned.pt로 예시 5문항 예측
-python load_model.py --ckpt checkpoints/pretrained.pt   # 사전학습 모델
-python load_model.py --eval 1000                        # 앞 1000문항 정답률
+python load_model.py # finetuned.pt로 예시 5문항 예측
+python load_model.py --ckpt checkpoints/pretrained.pt # 사전학습 모델
+python load_model.py --eval 1000 # 앞 1000문항 정답률
 ```
 
 ### 4. 재현 (code/ 폴더에서 실행)
 
 ```bash
 cd models/code
-python download.py && python split_dataset.py   # 데이터 준비
-python tokenizer_train.py                        # 토크나이저
-python preparetoken.py                           # 토큰화
-python train.py                                  # 사전학습
-python finetune.py finetune.learning_rate=5e-5 finetune.dropout=0.0 finetune.num_epochs=3 finetune.min_lr=5e-6   # 파인튜닝
+python download.py && python split_dataset.py # 데이터 준비
+python tokenizer_train.py # 토크나이저
+python preparetoken.py # 토큰화
+python train.py # 사전학습
+python finetune.py finetune.learning_rate=5e-5 finetune.dropout=0.0 finetune.num_epochs=3 finetune.min_lr=5e-6 # 파인튜닝
 ```
 
 Hydra 설정은 `code/conf/`에 있고, 명령줄에서 `key=value`로 덮어쓸 수 있습니다. 
