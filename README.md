@@ -5,11 +5,11 @@ FineWeb-Edu sample-10BT만으로 토크나이저와 GPT 모델을 처음부터 �
 ## Overview
 
 | 구분 | 내용 |
-|---|---|
+|-----|-----|
 | 모델 | Decoder-only Transformer (GPT), **324.7M** parameters |
 | 토크나이저 | Byte-Level BPE, vocab 16,000 (직접 학습) |
 | 사전학습 데이터 | FineWeb-Edu sample-10BT (외부 사전학습 모델·데이터 미사용) |
-| 파인튜닝 데이터 | `/data/finetuning-dataset/train.parquet` (99,842문항, 추가 데이터 없음) |
+| 파인튜닝 데이터 | `/data/finetuning-dataset/train.parquet` (99,842문항, 추가 데이터 X) |
 | 파인튜닝 결과 | val acc **0.5861**, val AUC 0.8149 (train.parquet 중 5% 4,975문항 hold-out) |
 
 ## Features
