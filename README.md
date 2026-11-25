@@ -139,7 +139,7 @@ Hydra 설정은 `code/conf/`에 있고, 명령줄에서 `key=value`로 덮어쓸
 | loss | 정답 토큰 위치의 cross-entropy만 사용 (context는 마스킹) |
 | 입력 템플릿 | `{question}\nA. {choices[0]}\nB. {choices[1]}\nC. {choices[2]}\nD. {choices[3]}\nAnswer:` |
 | batch | 16 × grad accum 4, 3 epochs (4,430 step) |
-| optimizer | AdamW (β 0.9/0.95, weight decay 0.1), warmup 3% 후 선형 감소 (5e-5 → 5e-6) |
+| optimizer | AdamW ($\beta$ 0.9/0.95, weight decay 0.1), warmup 3% 후 선형 감소 (5e-5 → 5e-6) |
 | learning rate / dropout | 5e-5 / 0.0 |
 | 선택 | lr {2e-5, 5e-5, 1e-4} × dropout {0.0, 0.1} sweep 중 val acc 최고 (step 3,700 체크포인트) |
 | 결과 | val acc 0.5861, val AUC 0.8149 |
