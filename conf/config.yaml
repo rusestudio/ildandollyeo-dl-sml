@@ -9,9 +9,9 @@ defaults:
 # path는 개발 환경에 따라 수정하시면 됩니다~
 paths:
   download: data/raw
-  raw: data/raw/sample/10BT
-  tokenizer: data/tokenizer/tokenizer.json
-  processed: data/processed
+  raw: /data/fineweb-edu/sample/10BT
+  tokenizer: /home/team4/ildandollyeo-dl-sml/data/tokenizer/tokenizer.json
+  processed: /home/team4/ildandollyeo-dl-sml/data/processed
   checkpoint: checkpoints
   finetune_data: /data/finetuning-dataset/train.parquet
   finetune_checkpoint: checkpoints/finetune

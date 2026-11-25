@@ -3,3 +3,5 @@ outputs/
 checkpoints/
 __pycache__/
 *.py[cod]
+*.log
+multirun/

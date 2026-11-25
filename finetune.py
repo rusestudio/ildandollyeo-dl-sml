@@ -83,7 +83,6 @@ optimizer = torch.optim.AdamW(
     fused=(device == "cuda"),
 )
 
-
 def get_lr(it):
     if it < warmup_steps:
         return ft_config.learning_rate * (it + 1) / warmup_steps
