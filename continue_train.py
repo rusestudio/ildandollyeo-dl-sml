@@ -1,17 +1,3 @@
-"""Continue the existing scratch-trained GPT for one additional FULL FineWeb-Edu 10BT epoch.
-
-Run from the project root (next to config.py, dataset.py, gpt_model.py):
-    python -u continue_train.py
-
-No new tokenizer, pretrained weights, or dataset download. This script verifies the
-full 14-file processed 10BT sample, restores BOTH Muon and AdamW optimizer states,
-uses a conservative new LR schedule, evaluates the FULL validation split, and
-saves checkpoints into a NEW directory (leaving the original run untouched).
-
-If interrupted, run the same command to continue from this run's latest.pt.
-The deterministic sampler resumes at the next UNTRAINED window.
-"""
-
 import argparse
 import hashlib
 import math
@@ -36,8 +22,6 @@ EXPECTED_FILES = [f"{i:03d}_00000.parquet" for i in range(14)]
 
 
 class ResumePermutationSampler(Sampler):
-    """One deterministic shuffled pass, with direct offset for safe restarts."""
-
     def __init__(self, size, seed, offset=0):
         self.size = int(size)
         self.seed = int(seed)
@@ -77,7 +61,6 @@ def full_validation(model, loader, device):
 
 def new_learning_rates(local_step, total, warmup, muon_peak, adamw_peak,
                        start_fraction=0.4, end_fraction=0.2):
-    """Warm from 40% to peak, then cosine-decay to 20% of peak."""
     if local_step < warmup:
         t = (local_step + 1) / max(1, warmup)
         factor = start_fraction + (1 - start_fraction) * t
