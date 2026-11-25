@@ -1,7 +1,6 @@
 # Team 4 - ildandollyeo-dl-sml
 
 ## Overview
-
 | 구분 | 내용 |
 |-----|-----|
 | 모델 | Decoder-only Transformer (GPT), **324.7M** parameters |
@@ -44,7 +43,7 @@ models/
     └── finetune_sweep.py      # 파인튜닝 하이퍼파라미터 sweep (Hydra multirun)
 ```
 
-## Prerequisites
+## 사전 확인 사양 (선택 사항)
 
 - Python 3.10+, CUDA GPU (bf16 지원)
 - `torch`, `tokenizers`, `datasets`, `hydra-core`, `omegaconf`, `scikit-learn`, `pandas`, `pyarrow`
@@ -53,11 +52,12 @@ models/
 pip install torch tokenizers datasets hydra-core omegaconf scikit-learn pandas pyarrow
 ```
 
-## Usage
+## 사용 방법
 
-### 1. 모델 로드
+### 1. Model Load
 
-체크포인트는 `{"model": state_dict, "gpt_config": dict, ...}` 형식입니다. `gpt_config`로 모델을 만든 뒤 가중치를 넣습니다.
+체크포인트는 `{"model": state_dict, "gpt_config": dict, ...}` 형식
+가중치는 `gpt_config`로 모델을 만든 뒤에 넣습니다.
 
 ```python
 import sys, torch
@@ -81,7 +81,7 @@ model = model.cuda().eval()
 - `tokenizer.encode()`는 BOS/EOS를 **자동으로 붙이지 않습니다**. 입력 맨 앞에 `[BOS]`를 직접 붙입니다.
 - `"A"`, `"B"`, `"C"`, `"D"`는 각각 토큰 1개(id 41–44)입니다.
 
-### 2. 입출력 형식 (공지 형식과 동일)
+### 2. 입출력 형식
 
 ```python
 ANSWER_OPTIONS = ["A", "B", "C", "D"]
@@ -95,7 +95,7 @@ input_ids = [bos_id] + tokenizer.encode(build_context(sample)).ids
 # 마지막 위치의 logit에서 A/B/C/D 토큰 중 가장 높은 것을 정답으로 사용
 ```
 
-### 3. 예측 실행
+### 3. exec
 
 ```bash
 cd models
