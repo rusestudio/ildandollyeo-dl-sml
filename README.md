@@ -127,7 +127,7 @@ Hydra 설정은 `code/conf/`에 있고, 명령줄에서 `key=value`로 덮어쓸
 | 데이터 | FineWeb-Edu sample-10BT 중 parquet 14개 (`000`–`013_00000.parquet`), 토큰화 후 train 11.05B tokens |
 | 학습량 | 8,000 step × 약 0.5M tokens/step 거의 4.2B tokens (train 의 약 38%) |
 | batch | 16 × grad accum 32 × seq 1024 |
-| optimizer | AdamW ($\beta$0.9/0.95, weight decay 0.1), grad clip 1.0 |
+| optimizer | AdamW ($\beta$ 0.9/0.95, weight decay 0.1), grad clip 1.0 |
 | learning rate | 3e-4 → 3e-5, warmup 400 step, WSD (마지막 20% 감소) |
 | 결과 | best val loss 2.684 |
 
