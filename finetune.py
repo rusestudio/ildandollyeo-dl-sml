@@ -27,7 +27,6 @@ pad_id = tokenizer.token_to_id("[PAD]")
 choice_ids = [
     tokenizer.encode(o, add_special_tokens=False).ids[0] for o in ft_config.answer_options
 ]
-choice_tensor = torch.tensor(choice_ids, device=device)                                     # 4지 선다끼리 비교
 
 checkpoint = torch.load(ft_config.pretrained_path, map_location=device)
 gpt_config = GPTConfig(**{**checkpoint["gpt_config"], "dropout": ft_config.dropout})
@@ -89,14 +88,9 @@ def get_lr(it):
     progress = (it - warmup_steps) / (max_steps - warmup_steps)
     return ft_config.learning_rate + progress * (ft_config.min_lr - ft_config.learning_rate)
 
-
 def answer_loss(logits, y, reduction="mean"):
     mask = y != -100
-    answer_logits, target = logits[mask].float(), y[mask]
-    if ft_config.choice_loss:
-        answer_logits = answer_logits[:, choice_tensor]
-        target = (target[:, None] == choice_tensor).int().argmax(-1)
-    return F.cross_entropy(answer_logits, target, reduction=reduction)
+    return F.cross_entropy(logits[mask].float(), y[mask], reduction=reduction)
 
 @torch.no_grad()
 def evaluate():
