@@ -43,7 +43,7 @@ models/
     └── finetune_sweep.py      # 파인튜닝 하이퍼파라미터 sweep (Hydra multirun)
 ```
 
-## 사전 확인 사양 (선택 사항)
+## 사전에 확인해야 하는 부분
 
 - Python 3.10+, CUDA GPU (bf16 지원)
 - `torch`, `tokenizers`, `datasets`, `hydra-core`, `omegaconf`, `scikit-learn`, `pandas`, `pyarrow`
