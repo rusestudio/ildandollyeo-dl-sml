@@ -165,7 +165,7 @@ ADAPT_EPOCHS=0.5 python finetune_adapt.py \
 | optimizer | AdamW ($\beta$ 0.9/0.95, weight decay 0.1), 단계마다 warmup 3% 후 선형 감소 |
 | 학습량 | 총 4 epoch (3 → +0.5 → +0.5), 이전 단계 체크포인트에서 이어서 학습 |
 
-| 단계 | epoch | lr | dropout | 템플릿 | 사용 체크포인트 |
+| 단계 | epoch | lr | dropout | 입력 템플릿 | 사용 체크포인트 |
 |---|---|---|---|---|---|
 | 1 | 3 | 5e-5 → 5e-6 | 0.0 | `{question}\n(A) {choices[0]} (B) ... (D) {choices[3]}\nAnswer: `| step 3,700 |
 | 2 | +0.5 | 2e-5 → 2e-6 | 0.0 | `{question}\n(A) {choices[0]} (B) ... (D) {choices[3]}\nAnswer: ` | step 300 |
