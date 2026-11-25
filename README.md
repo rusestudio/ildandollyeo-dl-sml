@@ -1,6 +1,4 @@
-# Team 4 -- ildandollyeo-dl-sml
-
-FineWeb-Edu sample-10BT만으로 토크나이저와 GPT 모델을 처음부터 사전학습하고, 제공된 객관식(4지선다) 데이터셋으로 파인튜닝한 모델입니다.
+# Team 4 - ildandollyeo-dl-sml
 
 ## Overview
 
